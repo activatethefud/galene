@@ -2469,7 +2469,7 @@ function showHideMedia(c, elt) {
         let tracks = c.stream.getTracks();
         for(let i = 0; i < tracks.length; i++) {
             let t = tracks[i];
-            if(t.kind === 'video') {
+            if(t.kind === 'video' || t.kind === 'audio') {
                 display = true;
                 break;
             }

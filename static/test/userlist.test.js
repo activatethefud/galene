@@ -148,3 +148,46 @@ test('tile name plates show the participant and can fall back', async (t) => {
     assert.ok(fb.classList.contains('label-fallback'));
 });
 
+test('an audio-only remote tile is displayed with the full name avatar', async (t) => {
+    let app = await loadApp({});
+    t.after(() => app.close());
+    let win = app.window;
+    let doc = win.document;
+
+    function tileWith(c) {
+        let elt = doc.createElement('div');
+        elt.id = 'peer-' + c.localId;
+        elt.className = 'peer peer-hidden';
+        elt.innerHTML = '<div class="avatar invisible">' +
+            '<span class="avatar-initials"></span></div>';
+        win.showHideMedia(c, elt);
+        return elt;
+    }
+
+    // Camera-off, microphone-on remote: audio track but no video.
+    let audioOnly = tileWith({
+        localId: 'x',
+        up: false,
+        username: 'Bob',
+        stream: {getTracks: () => [{kind: 'audio'}]},
+    });
+    assert.ok(!audioOnly.classList.contains('peer-hidden'),
+        'audio-only remote tiles should be displayed');
+    let avatar = audioOnly.querySelector('.avatar');
+    assert.ok(!avatar.classList.contains('invisible'),
+        'the avatar should be shown for a camera-off participant');
+    assert.equal(
+        avatar.querySelector('.avatar-initials').textContent, 'Bob');
+
+    // A video remote keeps showing the video, not the avatar.
+    let withVideo = tileWith({
+        localId: 'y',
+        up: false,
+        username: 'Alice',
+        stream: {getTracks: () => [{kind: 'audio'}, {kind: 'video'}]},
+    });
+    assert.ok(!withVideo.classList.contains('peer-hidden'));
+    assert.ok(withVideo.querySelector('.avatar').classList
+        .contains('invisible'));
+});
+
