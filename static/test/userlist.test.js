@@ -117,3 +117,34 @@ test('the tile avatar shows the full username, the lobby keeps initials', async 
     assert.equal(row.querySelector('.user-avatar').textContent, 'AL');
 });
 
+test('tile name plates show the participant and can fall back', async (t) => {
+    let app = await loadApp({});
+    t.after(() => app.close());
+    let win = app.window;
+    let doc = win.document;
+
+    function labelWith(c, fallback) {
+        let elt = doc.createElement('div');
+        elt.id = 'label-x';
+        doc.body.appendChild(elt);
+        win.setLabel(c, fallback);
+        doc.body.removeChild(elt);
+        return elt;
+    }
+
+    // Remote down-stream: named by the remote user.
+    let remote = labelWith({localId: 'x', username: 'Bob', up: false});
+    assert.equal(remote.textContent, 'Bob');
+    assert.equal(remote.dataset.name, 'Bob');
+
+    // Local up-stream with no server connection: stays empty (hidden).
+    let own = labelWith({localId: 'x', username: null, up: true});
+    assert.equal(own.textContent, '');
+    assert.equal(own.dataset.name, undefined);
+
+    // A stats fallback (bitrate figures) fills the label when unnamed.
+    let fb = labelWith({localId: 'x', username: null, up: true}, '123+45');
+    assert.equal(fb.textContent, '123+45');
+    assert.ok(fb.classList.contains('label-fallback'));
+});
+

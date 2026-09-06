@@ -1174,6 +1174,12 @@ getInputElement('displayallbox').onchange = function(e) {
 function gotUpStats(stats) {
     let c = this;
 
+    // The tile label now shows the participant's name.  Don't clobber it
+    // with the bitrate figures.
+    let label = document.getElementById('label-' + c.localId);
+    if(label && label.dataset.name)
+        return;
+
     let values = [];
 
     for(let id in stats) {
@@ -2788,15 +2794,22 @@ function setLabel(c, fallback) {
     if(!label)
         return;
     let l = c.username;
+    if(!l && c.up && serverConnection && serverConnection.username)
+        // The local user's own camera/screen has no remote username;
+        // label it with the name we joined under.
+        l = serverConnection.username;
     if(l) {
         label.textContent = l;
         label.classList.remove('label-fallback');
+        label.dataset.name = l;
     } else if(fallback) {
         label.textContent = fallback;
         label.classList.add('label-fallback');
+        delete label.dataset.name;
     } else {
         label.textContent = '';
         label.classList.remove('label-fallback');
+        delete label.dataset.name;
     }
 }
 
@@ -3060,6 +3073,16 @@ function changeUser(id, userinfo) {
         return;
     }
     setUserStatus(id, elt, userinfo);
+    // Keep the tile name plates in sync when a participant renames.
+    if(serverConnection) {
+        for(let streamId in serverConnection.down) {
+            let c = serverConnection.down[streamId];
+            if(c.source === id && c.username !== userinfo.username) {
+                c.username = userinfo.username;
+                setLabel(c);
+            }
+        }
+    }
 }
 
 /**

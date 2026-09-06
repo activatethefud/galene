@@ -735,15 +735,36 @@ textarea.form-reply {
 }
 
 .label {
-    left: 0;
     position: absolute;
-    bottom: 0;
-    width: 100%;
+    left: 50%;
+    bottom: 8px;
+    transform: translateX(-50%);
     z-index: 1;
-    text-align: center;
-    line-height: 24px;
+    max-width: calc(100% - 20px);
+    padding: 1px 10px 3px;
+    font-size: 12px;
+    font-weight: 600;
+    line-height: 20px;
+    letter-spacing: .02em;
     color: #ffffff;
+    text-align: center;
+    background: rgba(0, 0, 0, .55);
+    border-radius: 10px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    pointer-events: none;
 }
+
+.label:empty {
+    display: none;
+}
+
+.peer .avatar:not(.invisible) ~ .label {
+    display: none;
+}
+
+
 
 .nav-link {
     padding: 0;
