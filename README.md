@@ -69,6 +69,42 @@ password *sybil*.
 For full installation instructions, please see the file [galene-install.md][1]
 in this directory.
 
+## Running with Docker
+
+This repository ships the deployment files used to run Galene behind a
+Caddy reverse proxy with automatic HTTPS (pulled from the live classroom
+deployment and cleaned of site-specific hostnames):
+
+  * `Dockerfile` — multi-stage build: a fully static `galene` binary built
+    with `CGO_ENABLED=0` on `golang:1.24-alpine`, copied into a small
+    non-root `alpine:3.20` runtime together with `static/`.  Exposes 8443
+    (web) and 1194 (built-in TURN, TCP+UDP) and declares
+    `groups`/`data`/`recordings` as volumes.
+  * `docker-compose.yml` — a `galene` service (`network_mode: host`,
+    bind-mounting `./groups`, `./data` and `./recordings`, plain HTTP on
+    `127.0.0.1:8443`) plus a `caddy` service that reverse-proxies your
+    hostname to it and terminates TLS with Let's Encrypt.  Containers run
+    as your host user (`${PUID:-1000}:${PGID:-1000}`) so the bind mounts
+    stay writable.
+  * `Caddyfile` — replace the `YOUR-HOSTNAME-HERE` placeholder with your
+    domain (point its DNS at this machine first) and start the stack:
+
+```sh
+# create a group first, e.g.
+mkdir groups
+echo '{"users": {"vimes": {"password":"sybil", "permissions":"op"}}}' > groups/night-watch.json
+
+docker compose build galene
+docker compose up -d
+```
+
+Galene is then reachable at `https://YOUR-HOSTNAME-HERE/group/night-watch/`
+(username *vimes*, password *sybil*).  Host networking is required because
+WebRTC uses many ephemeral UDP ports plus the built-in TURN listener; do
+not switch the `galene` service to a bridge network.  To update after a
+client change: `scp`/copy the new files, then `docker compose build galene
+&& docker compose up -d galene`.
+
 ## Documentation
 
   * [galene-install.md][1]: full installation instructions

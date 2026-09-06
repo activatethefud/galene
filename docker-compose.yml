@@ -1,0 +1,45 @@
+services:
+  # -------------------------------------------------------------------------
+  # Galene videoconferencing server.
+  #
+  # Runs with host networking because WebRTC needs direct access to many
+  # ephemeral UDP ports and to the built-in TURN server (TCP+UDP :1194).
+  # The web server is bound to 127.0.0.1 only and served through Caddy.
+  # -------------------------------------------------------------------------
+  galene:
+    build: .
+    image: galene:latest
+    restart: always
+    network_mode: host
+    # Run as the host user so the bind-mounted ./groups and ./data
+    # directories (owned by you) are writable.
+    user: "${PUID:-1000}:${PGID:-1000}"
+    command:
+      - "-insecure"          # plain HTTP, TLS is terminated by Caddy
+      - "-http"
+      - "127.0.0.1:8443"     # loopback only; Caddy reaches it locally
+    volumes:
+      - ./groups:/var/lib/galene/groups
+      - ./data:/var/lib/galene/data
+      - ./recordings:/var/lib/galene/recordings
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
+
+  # -------------------------------------------------------------------------
+  # Caddy reverse proxy: your hostname -> 127.0.0.1:8443.
+  # Obtains Let's Encrypt certificates automatically (needs ports 80 + 443).
+  # -------------------------------------------------------------------------
+  caddy:
+    image: caddy:2
+    restart: always
+    network_mode: host
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+
+volumes:
+  caddy_data:
+  caddy_config:

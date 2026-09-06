@@ -1,0 +1,12 @@
+# Caddy reverse proxy for Galene.
+#
+# Caddy terminates TLS for your hostname (Let's Encrypt certificates are
+# obtained automatically) and forwards everything, including the WebSocket
+# connection at /ws, to Galene's plain-HTTP listener on localhost.
+#
+# Replace the hostname below with your own, and point its DNS A/AAAA record
+# at this machine before starting the stack.
+
+YOUR-HOSTNAME-HERE {
+    reverse_proxy 127.0.0.1:8443
+}
