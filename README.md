@@ -13,6 +13,44 @@ Galene is a fully-featured videoconferencing system that is easy to deploy
 and requires very moderate server resources.  It is described at
 <https://galene.org>.
 
+## Differences from upstream
+
+This fork is based on Galene v1.2 (`38fda0a`).  The **Go server is
+unmodified upstream code** — only the web client has been changed.  The
+main differences from [jech/galene](https://github.com/jech/galene) are:
+
+* **Separate Mic and Camera toggles.**  The old "Enable at start" radios
+  and Enable/Disable/Mute buttons are replaced with Jitsi-style Mic and
+  Camera toggle buttons, both on the Connect screen and in the room top
+  bar, with clear on/off states.
+* **Live login preview.**  On the Connect screen the toggles start/stop a
+  real camera preview (mirrored self-view) and a microphone level meter,
+  so you can check your devices *before* joining.  Camera and microphone
+  default to **on**.
+* **Auto-login and remembered state.**
+  * `galene.username` — last username pre-filled.
+  * `galene.media` — your last Mic/Camera on/off choices, restored on
+    return (auto-login starts media as you left it).
+  * `galene.login` — password logins are remembered for 24h of inactivity
+    and auto-log you back in.
+  * `galene.invite` — invite-link (token) logins are remembered too:
+    invited users who only type a username are recognised again and can
+    rejoin — even under a new name — without a fresh invite link.  Logging
+    out forgets your password but keeps the invite token.
+* **Better in-room feedback.**
+  * A floating **on-air pill** shows while your mic/camera are live.
+  * Every participant row shows Mic and Camera icons mirroring the top bar
+    (red crossed-out mic when a user is muted or off) plus an **initials
+    avatar**; raised hands appear as a badge.
+  * When a participant's camera is off but their mic is on, their video
+    tile shows a generated **avatar with their initials** instead of a
+    black canvas.
+* **Visual refresh.**  The CSS was modernised (flat colours, rounded
+  corners, hover/focus states, refreshed login panel and toasts).
+
+The client behaviour is exercised by an extensive jsdom test-suite under
+`static/test/` (run with `npm test`).
+
 ## Quick start
 
 ```sh
