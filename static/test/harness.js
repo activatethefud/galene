@@ -189,22 +189,53 @@ function installStubs(window, opts) {
     // A minimal WebSocket implementation, only installed when requested.
     // jsdom does not implement WebSocket; galene.js calls serverConnect()
     // only when a token is present or when automatic login kicks in.
-    // The fake records the URL and never opens, which lets us observe that
-    // a connection attempt was made without driving the full protocol.
+    // The fake records the URL and never opens on its own; the test drives
+    // it with serverOpen()/serverSend()/serverClose().  When the client
+    // closes the socket, onclose fires asynchronously (as in a browser) so
+    // that galene's gotClose() runs.
     if(opts.webSocket) {
         window.WebSocket = class {
             constructor(url) {
                 window.__wsCalls = window.__wsCalls || [];
                 window.__wsCalls.push(url);
+                window.__sockets = window.__sockets || [];
+                window.__sockets.push(this);
                 this.url = url;
                 this.readyState = 0;
                 this.OPEN = 1;
                 this.CONNECTING = 0;
                 this.CLOSED = 3;
+                this.received = [];
+                this._closed = false;
             }
-            send() {}
-            close() {
+            send(raw) {
+                const msg = JSON.parse(raw);
+                this.received.push(msg);
+            }
+            close(code, reason) {
+                if(this._closed)
+                    return;
+                this._closed = true;
                 this.readyState = 3;
+                const handler = this.onclose;
+                if(handler) {
+                    setTimeout(() => {
+                        handler({code: code || 1000, reason: reason || ''});
+                    }, 0);
+                }
+            }
+            // --- test-side (server) drivers ---
+            serverOpen() {
+                this.readyState = 1;
+                if(this.onopen)
+                    this.onopen();
+            }
+            serverSend(obj) {
+                if(this.onmessage)
+                    this.onmessage({data: JSON.stringify(obj)});
+            }
+            serverClose(code, reason) {
+                this.close(code, reason);
             }
         };
     }
@@ -276,10 +307,12 @@ export async function waitFor(what, message, timeout = 4000) {
  * @param {object} [opts.localStorage] initial entries for localStorage
  * @param {Array<{deviceId:string,kind:string,label:string,groupId:string}>} [opts.devices]
  * @param {object} [opts.status] JSON returned by fetch(".status")
- * @param {boolean} [opts.webSocket] install a recording fake WebSocket
+ * @param {boolean} [opts.webSocket] install a scriptable fake WebSocket
  * @param {boolean} [opts.waitLogin] wait for the login screen and the
  *   automatic preview before resolving (default true); set to false when
  *   the page under test auto-logs in and never shows the login screen.
+ * @param {string} [opts.url] page URL to load (default the plain
+ *   galene.html); append "?token=..." to test invite-link flows.
  */
 export async function loadApp(opts = {}) {
     const virtualConsole = new VirtualConsole();
@@ -288,7 +321,7 @@ export async function loadApp(opts = {}) {
     });
 
     const dom = new JSDOM(HTML, {
-        url: 'https://galene.test/galene.html',
+        url: opts.url || 'https://galene.test/galene.html',
         runScripts: 'dangerously',
         pretendToBeVisual: true,
         resources: new LocalLoader(),

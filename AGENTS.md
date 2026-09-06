@@ -81,6 +81,11 @@ on the login/Connect screen (live preview) and in the room top bar
 - Login username is remembered in `localStorage` (`galene.username`) and
   pre-filled (`getStoredUsername`/`setStoredUsername`); the trimmed value is
   stored on login submit.
+- Mic/camera toggle state is remembered in `localStorage` (`galene.media`,
+  `{camera, mic}` booleans): `toggleMicrophone()`/`toggleCamera()` persist
+  after flipping; `gotClose()` and `start()` restore the last chosen state
+  (defaulting to both on when nothing is stored) so auto-login/rejoin
+  starts the way the user left it.
 - Password automatic login stores `{username, password, time}` under
   `galene.login` (`LOGIN_TTL` = 24h of inactivity).  Credentials are only
   persisted after a *confirmed* join (`pendingLogin`), cleared on explicit
@@ -96,7 +101,9 @@ on the login/Connect screen (live preview) and in the room top bar
     `clearStoredInvite` do what their names say.
   - `pendingInvite` mirrors `pendingLogin`: capture in `join()` for a real
     token join (not the probe) that has a username; persist in `gotJoined`
-    only on a confirmed `'join'`; wipe on rejection and on explicit logout.
+    only on a confirmed `'join'`; wipe on rejection (a revoked/rejected
+    token in the `'fail'` branch clears the stored invite so the user does
+    not loop).
   - In `start()`'s no-token branch a fresh stored invite for the current
     group is preferred over the password auto-login: it prefills the
     username, hides the password form, sets `token` +
@@ -105,8 +112,17 @@ on the login/Connect screen (live preview) and in the room top bar
     opens it falls back to `showLogin()`.
   - `gotClose()` restores the stored token after a disconnect so clicking
     Connect again rejoins with just the username.
-- `#logoutbutton` in the top bar (shown when connected) closes the
-  connection, clears stored login/invite, and returns to the login screen.
+- **Logout semantics:** `#logoutbutton` (top bar) and the sidebar
+  `#disconnectbutton` close the connection and drop the remembered
+  *password* credentials (`galene.login`), but they deliberately KEEP the
+  invite token (`galene.invite`).  An invited user who only ever types a
+  username must be able to log back in — and rename themselves — without a
+  fresh invite link.  After logout `gotClose()` therefore restores the
+  stored token (`probingState='need-username'`, username pre-filled, the
+  password form hidden); `loginform.onsubmit` only shows the password
+  field for password-based logins (`if(!token)`), so token users are never
+  bounced back to the full auth form.
+- Operator can mute a participant from the user menu.
 - Operator can mute a participant from the user menu.
 
 ## Running the client tests
@@ -128,6 +144,17 @@ screen **and** the auto-started media preview before resolving, so the
 initial state is deterministic (both toggles ON, one getUserMedia call).
 `userlist.test.js` renders participant rows by calling `setUserStatus()`
 directly on a detached element, so no WebSocket/RTC plumbing is needed.
+`invite-flow.test.js` drives the real protocol end-to-end through the
+scriptable fake WebSocket: set `opts.url` to a `?token=...` page and
+`opts.webSocket: true`, then use `window.__sockets` + the per-socket
+`serverOpen()`/`serverSend(obj)`/`close()` driver methods to reply to the
+client's handshake (`{type:'handshake',version:['2']}`) and `join`
+messages (`{type:'joined',kind:'fail'|'join',...}`).  Because jsdom has no
+`RTCPeerConnection`, scripted joins grant permissions **without**
+`'present'` so the auto-present/media path is skipped.  After driving an
+action that closes the socket (e.g. logout), always `waitFor` the login
+screen — the fake socket's `onclose` is asynchronous, and asserting or
+`app.close()`ing before it settles leaks a timer.
 
 Note for tests: because `start()` calls `enumerateDevices` + 
 `reflectSettings`, the enumerated default device ids (`cam1`, `mic1` in the

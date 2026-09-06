@@ -407,10 +407,12 @@ function gotClose(code, reason) {
     closeSafariStream();
     setConnected(false);
     broadcastMicState = null;
-    // Return to the login screen with the camera and the microphone on,
-    // as on first arrival.
-    localCameraOn = true;
-    localMicOn = true;
+    // Return to the login screen.  Restore the Mic/Camera toggle state the
+    // user last chose (defaulting to both on, as on first arrival) so that
+    // the preview and any rejoin start the way the user expects.
+    let mediaPrefs = getStoredMedia();
+    localCameraOn = mediaPrefs ? mediaPrefs.camera : true;
+    localMicOn = mediaPrefs ? mediaPrefs.mic : true;
     syncMediaButtons();
     setButtonsVisibility();
     stopLoginPreview();
@@ -424,6 +426,9 @@ function gotClose(code, reason) {
             token = invite.token;
             probingState = 'need-username';
             getInputElement('username').value = invite.username;
+            // Invite users authenticate with a token, not a password, so
+            // only the username field is needed on this login screen.
+            setVisibility('passwordform', false);
         }
     }
     if(code !== 1000) {
@@ -864,6 +869,50 @@ function clearStoredInvite() {
     }
 }
 
+// Remembered state of the Mic and Camera toggles (user preference).  It is
+// written only when the user toggles a device, and restored when the page
+// loads again or after a disconnect, so that (re)joining starts with the
+// devices in the state the user left them in.
+const MEDIA_STORAGE_KEY = 'galene.media';
+
+/**
+ * @returns {{camera: boolean, mic: boolean}|null} the remembered Mic/Camera
+ * toggle state, or null if nothing (valid) was stored.
+ */
+function getStoredMedia() {
+    try {
+        let raw = window.localStorage.getItem(MEDIA_STORAGE_KEY);
+        if(!raw)
+            return null;
+        let data = JSON.parse(raw);
+        if(typeof data !== 'object' || data === null)
+            return null;
+        if(typeof data.camera !== 'boolean' ||
+           typeof data.mic !== 'boolean')
+            return null;
+        return {camera: data.camera, mic: data.mic};
+    } catch(e) {
+        return null;
+    }
+}
+
+/**
+ * Records the current state of the Mic and Camera toggles.
+ *
+ * @param {boolean} camera
+ * @param {boolean} mic
+ */
+function setStoredMedia(camera, mic) {
+    try {
+        window.localStorage.setItem(
+            MEDIA_STORAGE_KEY,
+            JSON.stringify({camera: !!camera, mic: !!mic}),
+        );
+    } catch(e) {
+        // Ignore; storage may be unavailable.
+    }
+}
+
 // Credentials of the login attempt currently in flight; they are written
 // to localStorage only once the server has confirmed the join.
 let pendingLogin = null;
@@ -948,11 +997,13 @@ document.getElementById('sharebutton').onclick = function(e) {
 
 document.getElementById('logoutbutton').onclick = function(e) {
     e.preventDefault();
-    // An explicit logout drops the automatic-login credentials.
+    // An explicit logout drops the remembered *password* credentials, but
+    // keeps the invite-link token for this group: an invited user who only
+    // ever types a username should be able to log back in (and rename
+    // themselves) without needing a fresh invite link.
     pendingLogin = null;
     clearStoredLogin();
     pendingInvite = null;
-    clearStoredInvite();
     if(serverConnection)
         serverConnection.close();
     closeNav();
@@ -1654,6 +1705,7 @@ async function adjustLocalMedia() {
  */
 async function toggleMicrophone() {
     localMicOn = !localMicOn;
+    setStoredMedia(localCameraOn, localMicOn);
     setNavMicIcon(!localMicOn);
     setJoinMicIcon(!localMicOn);
     updateAirIndicator();
@@ -1670,6 +1722,7 @@ async function toggleMicrophone() {
  */
 async function toggleCamera() {
     localCameraOn = !localCameraOn;
+    setStoredMedia(localCameraOn, localMicOn);
     setNavCamIcon(localCameraOn);
     setJoinCamIcon(localCameraOn);
     updateAirIndicator();
@@ -4787,11 +4840,11 @@ getSelectElement('test-audioselect').onchange = async function(e) {
 };
 
 document.getElementById('disconnectbutton').onclick = function(e) {
-    // An explicit logout drops the automatic-login credentials.
+    // An explicit logout drops the remembered *password* credentials, but
+    // keeps the invite-link token for this group (see logoutbutton above).
     pendingLogin = null;
     clearStoredLogin();
     pendingInvite = null;
-    clearStoredInvite();
     serverConnection.close();
     closeNav();
 };
@@ -4938,6 +4991,17 @@ async function start() {
     await setMediaChoices(false);
     reflectSettings();
 
+    // Restore the Mic/Camera toggle state the user last chose (if any), so
+    // that an automatic login or a manual rejoin starts with the devices in
+    // the state they expect.  Without a stored preference the defaults
+    // (both on) apply.
+    let mediaPrefs = getStoredMedia();
+    if(mediaPrefs) {
+        localCameraOn = mediaPrefs.camera;
+        localMicOn = mediaPrefs.mic;
+        syncMediaButtons();
+    }
+
     if(parms.has('token'))
         token = parms.get('token');
 
@@ -4976,7 +5040,14 @@ async function start() {
                 setStoredUsername(auto.username);
                 getInputElement('username').value = auto.username;
                 getInputElement('password').value = auto.password;
-                setVisibility('passwordform', true);
+    // Show the password field only for password-based logins.  Invite
+    // (token) users authenticate with a token and only type a username, so
+    // re-showing the password form here would bounce them back to the full
+    // authentication form.
+    if(!token)
+        setVisibility('passwordform', true);
+    else
+        setVisibility('passwordform', false);
                 await serverConnect();
                 // If the connection failed before it was established (e.g.
                 // the server is unreachable), fall back to the regular

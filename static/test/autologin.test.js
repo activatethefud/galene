@@ -113,6 +113,13 @@ test('logging out clears the stored credentials', async () => {
                 JSON.stringify(app.errors));
         assert.notEqual(storedLogin(app.window), null);
         app.document.getElementById('logoutbutton').click();
+        // Wait for gotClose to finish (the fake socket's onclose is
+        // asynchronous) before asserting, so no timer is left running
+        // after the window is closed.
+        await waitFor(
+            () => isVisible(app.document, 'login-container'),
+            'login screen was not shown after logout: ' +
+                JSON.stringify(app.errors));
         assert.equal(storedLogin(app.window), null);
         assert.deepEqual(app.errors, []);
     } finally {

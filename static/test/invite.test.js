@@ -106,7 +106,7 @@ test('a failed automatic invite login falls back to the login screen', async () 
     }
 });
 
-test('logging out clears the stored invite', async () => {
+test('logging out keeps the invite token but drops the password', async () => {
     const app = await loadApp({
         localStorage: {
             [INVITE_KEY]: inviteEntry(),
@@ -121,7 +121,17 @@ test('logging out clears the stored invite', async () => {
                 JSON.stringify(app.errors));
         assert.notEqual(storedInvite(app.window), null);
         app.document.getElementById('logoutbutton').click();
-        assert.equal(storedInvite(app.window), null);
+        // The invite token survives an explicit logout: an invited user
+        // who only ever types a username must be able to log back in (and
+        // rename themselves) without a fresh invite link.  The password
+        // auto-login, on the other hand, is dropped.  Wait for gotClose to
+        // settle (the fake socket's onclose is asynchronous).
+        await waitFor(
+            () => isVisible(app.document, 'login-container'),
+            'login screen was not shown after logout: ' +
+                JSON.stringify(app.errors));
+        assert.notEqual(storedInvite(app.window), null);
+        assert.equal(app.window.localStorage.getItem('galene.login'), null);
         assert.deepEqual(app.errors, []);
     } finally {
         app.close();
