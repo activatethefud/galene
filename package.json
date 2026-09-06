@@ -1,0 +1,15 @@
+{
+  "name": "galene-client-tests",
+  "private": true,
+  "type": "module",
+  "description": "jsdom-based tests for the Galene client UI (static/galene.*)",
+  "scripts": {
+    "test": "node --test static/test/*.test.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "devDependencies": {
+    "jsdom": "^24.1.3"
+  }
+}

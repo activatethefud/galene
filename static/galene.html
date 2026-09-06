@@ -37,25 +37,27 @@
 
               <ul class="nav-menu">
                 <li>
-                  <button id="presentbutton" class="invisible btn btn-success">
-                    <i class="fas fa-play" aria-hidden="true"></i><span class="nav-text"> Enable</span>
-                  </button>
-                </li>
-                <li>
-                  <button id="unpresentbutton" class="invisible btn btn-cancel">
-                    <i class="fas fa-stop" aria-hidden="true"></i><span class="nav-text"> Disable</span>
-                  </button>
-                </li>
-                <li>
-                  <div id="mutebutton" class="nav-link nav-button">
+                  <div id="mutebutton" class="invisible nav-link nav-button">
                     <span><i class="fas fa-microphone-slash" aria-hidden="true"></i></span>
-                    <label>Mute</label>
+                    <label>Mic</label>
+                  </div>
+                </li>
+                <li>
+                  <div id="cambutton" class="invisible nav-link nav-button">
+                    <span><i class="fas fa-video-slash" aria-hidden="true"></i></span>
+                    <label>Camera</label>
                   </div>
                 </li>
                 <li>
                   <div id="sharebutton" class="invisible nav-link nav-button">
                     <span><i class="fas fa-share-square" aria-hidden="true"></i></span>
                     <label>Share Screen</label>
+                  </div>
+                </li>
+                <li>
+                  <div id="logoutbutton" class="invisible nav-link nav-button">
+                    <span><i class="fas fa-sign-out-alt" aria-hidden="true"></i></span>
+                    <label>Logout</label>
                   </div>
                 </li>
                 <li>
@@ -115,20 +117,32 @@
                       <input id="password" type="password" name="password"
                              autocomplete="current-password" class="form-control"/>
                     </div>
-                    <label>Enable at start:</label>
-                    <div class="present-switch">
-                      <p class="switch-radio">
-                        <input id="presentoff" type="radio" name="presentradio" value="" checked/>
-                        <label for="presentoff">Nothing</label>
-                      </p>
-                      <p class="switch-radio">
-                        <input id="presentmike" type="radio" name="presentradio" value="mike"/>
-                        <label for="presentmike">Microphone</label>
-                      </p>
-                      <p class="switch-radio">
-                        <input id="presentboth" type="radio" name="presentradio" value="both"/>
-                        <label for="presentboth">Camera and microphone</label>
-                      </p>
+                    <div class="login-media">
+                      <div class="login-media-title">Enable camera and microphone</div>
+                      <div class="login-media-buttons">
+                        <button type="button" id="join-cambutton"
+                                class="join-media-button join-camera off"
+                                aria-pressed="false" title="Turn your camera on or off">
+                          <i class="fas fa-video-slash" aria-hidden="true"></i>
+                          <span class="join-media-text">Camera</span>
+                        </button>
+                        <button type="button" id="join-micbutton"
+                                class="join-media-button join-mic off"
+                                aria-pressed="false" title="Turn your microphone on or off">
+                          <i class="fas fa-microphone-slash" aria-hidden="true"></i>
+                          <span class="join-media-text">Microphone</span>
+                        </button>
+                      </div>
+                      <div id="login-preview" class="login-preview invisible">
+                        <video id="login-video" autoplay playsInline muted></video>
+                        <div id="login-audio-only" class="login-audio-only invisible">
+                          <div class="login-audio-icon">
+                            <i class="fas fa-microphone" aria-hidden="true"></i>
+                          </div>
+                          <div class="login-audio-text">Microphone is on</div>
+                          <canvas id="login-meter" width="320" height="48"></canvas>
+                        </div>
+                      </div>
                     </div>
                     <div class="clear"></div>
                     <div class="connect">
@@ -316,6 +330,11 @@
         <button value="invite">Invite</button>
       </form>
     </dialog>
+
+    <div id="air-indicator" class="air-indicator invisible">
+      <span class="air-indicator-dot" aria-hidden="true"></span>
+      <span class="air-indicator-text">Mic and camera are on</span>
+    </div>
 
     <script src="/protocol.js" defer></script>
     <script src="/third-party/toastify/toastify.js" defer></script>

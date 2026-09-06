@@ -602,10 +602,11 @@ textarea.form-reply {
 }
 
 .login-box {
-    width: 20em;
+    width: 22em;
+    max-width: calc(100vw - 2em);
     padding: 1em;
     margin: 2.5em auto;
-    height: 23em;
+    height: auto;
     background: #fcfcfc;
 }
 
@@ -632,6 +633,101 @@ textarea.form-reply {
 #test-fft {
     display: block;
     background: linear-gradient(to right, #E0E0E0, #EFEFEF);
+}
+
+.login-media {
+    margin-top: 1em;
+}
+
+.login-media-title {
+    text-align: center;
+    color: #666;
+    font-size: 90%;
+}
+
+.login-media-buttons {
+    display: flex;
+    justify-content: center;
+    gap: 0.5em;
+    margin-top: 0.6em;
+}
+
+.join-media-button {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.45em;
+    width: 8.6em;
+    padding: 0.45em 0;
+    font-size: 0.95em;
+    line-height: 1.3;
+    color: #555;
+    background: #f2f2f2;
+    border: 1px solid #cbcbcb;
+    border-radius: 4px;
+    cursor: pointer;
+    -webkit-user-select: none;
+    -moz-user-select: none;
+    user-select: none;
+}
+
+.join-media-button:hover {
+    border-color: #999;
+}
+
+.join-media-button.on {
+    color: #fff;
+    background: #28a745;
+    border-color: #1e8c48;
+}
+
+.join-media-button.off .fas {
+    color: #d03e3e;
+}
+
+.join-media-button.on .fas {
+    color: #fff;
+}
+
+.login-preview {
+    position: relative;
+    margin: 0.8em auto 0;
+    width: 100%;
+    background: #111;
+    border-radius: 4px;
+    overflow: hidden;
+}
+
+#login-video {
+    display: block;
+    width: 100%;
+    max-height: calc(var(--vh, 1vh) * 100 - 300px);
+    object-fit: contain;
+}
+
+.login-audio-only {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.35em;
+    padding: 1em 0.4em;
+    color: #ccc;
+    text-align: center;
+}
+
+.login-audio-only .login-audio-icon {
+    color: #2ecc71;
+    font-size: 2em;
+}
+
+.login-audio-only .login-audio-text {
+    font-size: 90%;
+}
+
+#login-meter {
+    display: block;
+    width: 80%;
+    height: 48px;
 }
 
 .label-fallback {
@@ -745,10 +841,6 @@ h1 {
     width: 100%;
 }
 
-.switch-radio {
-    margin: 0;
-}
-
 .invisible {
     display: none;
 }
@@ -773,15 +865,6 @@ h1 {
 
 #optionsdiv input[type="checkbox"] {
   vertical-align: middle;
-}
-
-#presentbutton, #unpresentbutton {
-    white-space: nowrap;
-    margin-right: 0.4em;
-    margin-top: .1em;
-    font-size: 1.1em;
-    text-align: left;
-    width: 5.8em;
 }
 
 #videoselect {
@@ -1218,9 +1301,6 @@ header .collapse:hover {
 }
 
 @media only screen and (max-width: 1024px) {
-    #presentbutton, #unpresentbutton {
-        width: auto;
-    }
     .nav-link {
         margin: 0 4px;
         line-height: 1.5;
@@ -1443,4 +1523,53 @@ header .collapse:hover {
 }
 .toastify.info .toast-close {
     color: #000;
+}
+
+/* ------------------------------------------------------------------ */
+/* Floating "you are on air" indicator (mic / camera on)               */
+
+.air-indicator {
+    position: fixed;
+    left: 50%;
+    bottom: 1.2em;
+    transform: translateX(-50%);
+    z-index: 1100;
+    display: flex;
+    align-items: center;
+    gap: 0.5em;
+    max-width: calc(100vw - 2em);
+    padding: 0.5em 0.9em;
+    border-radius: 2em;
+    background: rgba(32, 32, 32, 0.85);
+    color: #fff;
+    font-size: 0.9em;
+    line-height: 1.2;
+    box-shadow: 0 2px 12px rgba(0, 0, 0, 0.35);
+    pointer-events: none;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.air-indicator-dot {
+    flex: none;
+    width: 0.6em;
+    height: 0.6em;
+    border-radius: 50%;
+    background: #2ecc71;
+    box-shadow: 0 0 0 0 rgba(46, 204, 113, 0.6);
+    animation: air-pulse 2s infinite;
+}
+
+@keyframes air-pulse {
+    0%   { box-shadow: 0 0 0 0 rgba(46, 204, 113, 0.6); }
+    70%  { box-shadow: 0 0 0 8px rgba(46, 204, 113, 0); }
+    100% { box-shadow: 0 0 0 0 rgba(46, 204, 113, 0); }
+}
+
+/* Muted-microphone indicator in the participant list */
+
+#users > div.user-status-muted::after {
+    content: "\f131";
+    color: #d03e3e;
 }

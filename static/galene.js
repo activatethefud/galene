@@ -392,6 +392,15 @@ function gotClose(code, reason) {
     closeUpMedia();
     closeSafariStream();
     setConnected(false);
+    broadcastMicState = null;
+    // Return to the login screen with the camera and the microphone on,
+    // as on first arrival.
+    localCameraOn = true;
+    localMicOn = true;
+    syncMediaButtons();
+    setButtonsVisibility();
+    stopLoginPreview();
+    updateLoginPreview();
     if(code !== 1000) {
         console.warn('Socket close', code, reason);
     }
@@ -445,29 +454,6 @@ function setViewportHeight() {
 addEventListener('resize', setViewportHeight);
 addEventListener('orientationchange', setViewportHeight);
 
-getButtonElement('presentbutton').onclick = async function(e) {
-    e.preventDefault();
-    let button = this;
-    if(!(button instanceof HTMLButtonElement))
-        throw new Error('Unexpected type for this.');
-    // there's a potential race condition here: the user might click the
-    // button a second time before the stream is set up and the button hidden.
-    button.disabled = true;
-    try {
-        let id = findUpMedia('camera');
-        if(!id)
-            await addLocalMedia();
-    } finally {
-        button.disabled = false;
-    }
-};
-
-getButtonElement('unpresentbutton').onclick = function(e) {
-    e.preventDefault();
-    closeUpMedia('camera');
-    resizePeers();
-};
-
 /**
  * @param {string} id
  * @param {boolean} visible
@@ -505,15 +491,16 @@ function setButtonsVisibility() {
         ('mediaDevices' in navigator) &&
         ('getDisplayMedia' in navigator.mediaDevices) &&
         permissions.indexOf('present') >= 0;
-    let local = !!findUpMedia('camera');
     let mediacount = document.getElementById('peers').childElementCount;
     let mobilelayout = isMobileLayout();
 
-    // don't allow multiple presentations
-    setVisibility('presentbutton', canPresent && !local);
-    setVisibility('unpresentbutton', local);
+    // show the Mic and Camera buttons only while in a group, where we can
+    // use them
+    setVisibility('mutebutton', connected && canPresent);
+    setVisibility('cambutton', connected && canPresent);
 
-    setVisibility('mutebutton', !connected || canPresent);
+    // show the Logout button whenever we are connected
+    setVisibility('logoutbutton', connected);
 
     // allow multiple shared documents
     setVisibility('sharebutton', canShare);
@@ -523,6 +510,7 @@ function setButtonsVisibility() {
     setVisibility('simulcastform', canPresent);
 
     setVisibility('collapse-video', mediacount && mobilelayout);
+    updateAirIndicator();
 }
 
 /**
@@ -533,17 +521,9 @@ function setButtonsVisibility() {
  */
 function setLocalMute(mute, reflect) {
     muteLocalTracks(mute);
-    let button = document.getElementById('mutebutton');
-    let icon = button.querySelector("span .fas");
-    if(mute){
-        icon.classList.add('fa-microphone-slash');
-        icon.classList.remove('fa-microphone');
-        button.classList.add('muted');
-    } else {
-        icon.classList.remove('fa-microphone-slash');
-        icon.classList.add('fa-microphone');
-        button.classList.remove('muted');
-    }
+    setNavMicIcon(mute);
+    updateAirIndicator();
+    broadcastMute(mute);
     if(reflect)
         updateSettings({localMute: mute});
 }
@@ -597,20 +577,202 @@ getInputElement('hqaudiobox').onchange = function(e) {
     replaceCameraStream();
 };
 
+// Desired state of the local camera and microphone.  These are the source
+// of truth for the Mic and Camera buttons on the login screen and in the
+// top bar.  Local media is present while (localCameraOn || localMicOn).
+// They default to on: we start a live preview on the login screen as soon
+// as the page loads, so that the user can see themselves before joining.
+let localCameraOn = true;
+let localMicOn = true;
+let mediaChanging = false;
+
+/**
+ * @param {boolean} muted
+ */
+function setNavMicIcon(muted) {
+    let button = document.getElementById('mutebutton');
+    let icon = button.querySelector('span .fas');
+    if(muted) {
+        icon.classList.add('fa-microphone-slash');
+        icon.classList.remove('fa-microphone');
+        button.classList.add('muted');
+    } else {
+        icon.classList.remove('fa-microphone-slash');
+        icon.classList.add('fa-microphone');
+        button.classList.remove('muted');
+    }
+}
+
+/**
+ * @param {boolean} on
+ */
+function setNavCamIcon(on) {
+    let button = document.getElementById('cambutton');
+    let icon = button.querySelector('span .fas');
+    if(on) {
+        icon.classList.remove('fa-video-slash');
+        icon.classList.add('fa-video');
+        button.classList.remove('muted');
+    } else {
+        icon.classList.add('fa-video-slash');
+        icon.classList.remove('fa-video');
+        button.classList.add('muted');
+    }
+}
+
+/**
+ * @param {boolean} muted
+ */
+function setJoinMicIcon(muted) {
+    let button = document.getElementById('join-micbutton');
+    let icon = button.querySelector('.fas');
+    if(muted) {
+        icon.classList.remove('fa-microphone');
+        icon.classList.add('fa-microphone-slash');
+        button.classList.remove('on');
+        button.classList.add('off');
+        button.setAttribute('aria-pressed', 'false');
+    } else {
+        icon.classList.remove('fa-microphone-slash');
+        icon.classList.add('fa-microphone');
+        button.classList.remove('off');
+        button.classList.add('on');
+        button.setAttribute('aria-pressed', 'true');
+    }
+}
+
+/**
+ * @param {boolean} on
+ */
+function setJoinCamIcon(on) {
+    let button = document.getElementById('join-cambutton');
+    let icon = button.querySelector('.fas');
+    if(on) {
+        icon.classList.remove('fa-video-slash');
+        icon.classList.add('fa-video');
+        button.classList.remove('off');
+        button.classList.add('on');
+        button.setAttribute('aria-pressed', 'true');
+    } else {
+        icon.classList.remove('fa-video');
+        icon.classList.add('fa-video-slash');
+        button.classList.remove('on');
+        button.classList.add('off');
+        button.setAttribute('aria-pressed', 'false');
+    }
+}
+
+/**
+ * Makes the Mic and Camera buttons reflect the desired media state.
+ */
+function syncMediaButtons() {
+    setNavMicIcon(!localMicOn);
+    setNavCamIcon(localCameraOn);
+    setJoinMicIcon(!localMicOn);
+    setJoinCamIcon(localCameraOn);
+    updateAirIndicator();
+}
+
+const USERNAME_STORAGE_KEY = 'galene.username';
+
+function getStoredUsername() {
+    try {
+        return window.localStorage.getItem(USERNAME_STORAGE_KEY) || '';
+    } catch(e) {
+        // localStorage is unavailable (e.g. private browsing): no memory.
+        return '';
+    }
+}
+
+function setStoredUsername(name) {
+    try {
+        if(name)
+            window.localStorage.setItem(USERNAME_STORAGE_KEY, name);
+        else
+            window.localStorage.removeItem(USERNAME_STORAGE_KEY);
+    } catch(e) {
+        // Ignore; storage may be unavailable.
+    }
+}
+
+/**
+ * Updates the floating "you are on air" indicator that reminds the user
+ * that their microphone or camera is on.  Only shown while in a room.
+ */
+function updateAirIndicator() {
+    let elt = document.getElementById('air-indicator');
+    if(!(elt instanceof HTMLElement))
+        return;
+    let micOn = localMicOn;
+    let camOn = localCameraOn;
+    if(!inRoom() || (!micOn && !camOn)) {
+        elt.classList.add('invisible');
+        return;
+    }
+    elt.classList.remove('invisible');
+    let text = elt.querySelector('.air-indicator-text');
+    if(!(text instanceof HTMLElement))
+        return;
+    if(micOn && camOn)
+        text.textContent = 'Mic and camera are on';
+    else if(micOn)
+        text.textContent = 'Microphone is on';
+    else
+        text.textContent = 'Camera is on';
+}
+
+// Whether our last broadcast mute state matches reality; avoids spamming
+// the server with redundant setdata messages.
+let broadcastMicState = null;
+
+/**
+ * Tells the other participants whether our microphone is muted, using the
+ * same per-user data mechanism as the "raise hand" feature.  This is what
+ * lets other users show a muted-microphone icon next to our name.
+ *
+ * @param {boolean} muted
+ */
+function broadcastMute(muted) {
+    if(!inRoom())
+        return;
+    if(!!muted === !!broadcastMicState)
+        return;
+    broadcastMicState = !!muted;
+    serverConnection.userAction(
+        'setdata', serverConnection.id, {'muted': muted},
+    );
+}
+
 document.getElementById('mutebutton').onclick = function(e) {
     e.preventDefault();
-    let localMute = getSettings().localMute;
-    if (localMute && !findUpMedia('camera')) {
-        displayMessage('Please use Enable to enable your camera or microphone.');
-    } else {
-        localMute = !localMute;
-        setLocalMute(localMute, true);
-    }
+    toggleMicrophone();
+};
+
+document.getElementById('cambutton').onclick = function(e) {
+    e.preventDefault();
+    toggleCamera();
+};
+
+document.getElementById('join-micbutton').onclick = function(e) {
+    e.preventDefault();
+    toggleMicrophone();
+};
+
+document.getElementById('join-cambutton').onclick = function(e) {
+    e.preventDefault();
+    toggleCamera();
 };
 
 document.getElementById('sharebutton').onclick = function(e) {
     e.preventDefault();
     addShareMedia();
+};
+
+document.getElementById('logoutbutton').onclick = function(e) {
+    e.preventDefault();
+    if(serverConnection)
+        serverConnection.close();
+    closeNav();
 };
 
 getSelectElement('filterselect').onchange = async function(e) {
@@ -1236,44 +1398,148 @@ async function replaceUpStreams(label) {
 }
 
 /**
- * Closes and reopens the camera then replaces the camera stream.
+ * Closes and reopens the camera then replaces the camera stream.  Used
+ * when a device or an option has changed while we are presenting.
  */
-function replaceCameraStream() {
+async function replaceCameraStream() {
     let c = findUpMedia('camera');
     if(c)
-        addLocalMedia(c.localId);
+        await openLocalMedia(c.localId, localCameraOn);
 }
 
 /**
- * @param {string} [localId]
+ * @returns {boolean}
  */
-async function addLocalMedia(localId) {
+function canGetUserMedia() {
+    return ('mediaDevices' in navigator) &&
+        ('getUserMedia' in navigator.mediaDevices);
+}
+
+/**
+ * True if we have joined a group, as opposed to sitting on the login
+ * screen.
+ *
+ * @returns {boolean}
+ */
+function inRoom() {
+    return !!(serverConnection && serverConnection.socket &&
+              !getVisibility('login-container'));
+}
+
+/**
+ * Reconciles the current local media with the desired state of the camera
+ * and microphone buttons: local media is present while the camera or the
+ * microphone is on, and the audio track is muted whenever the microphone
+ * is off.
+ */
+async function adjustLocalMedia() {
+    if(mediaChanging)
+        return;
+    mediaChanging = true;
+    try {
+        let c = findUpMedia('camera');
+        if(!(localCameraOn || localMicOn)) {
+            if(c)
+                closeUpMedia('camera');
+            return;
+        }
+
+        // store our mute state so that any track we add when reopening the
+        // stream below is muted if the microphone is off
+        let muted = !localMicOn;
+        if(!!getSettings().localMute !== muted)
+            updateSettings({localMute: muted});
+
+        if(c) {
+            let hasVideo = !!c.stream &&
+                c.stream.getVideoTracks().length > 0;
+            if(hasVideo !== localCameraOn)
+                await openLocalMedia(c.localId, localCameraOn);
+            else
+                muteLocalTracks(muted);
+            return;
+        }
+        await openLocalMedia(null, localCameraOn);
+    } finally {
+        mediaChanging = false;
+    }
+}
+
+/**
+ * Toggles the local microphone.  While in a group this starts or stops the
+ * local media; on the login screen it starts or stops the live preview.
+ */
+async function toggleMicrophone() {
+    localMicOn = !localMicOn;
+    setNavMicIcon(!localMicOn);
+    setJoinMicIcon(!localMicOn);
+    updateAirIndicator();
+    broadcastMute(!localMicOn);
+    if(inRoom())
+        await adjustLocalMedia();
+    else
+        await updateLoginPreview();
+}
+
+/**
+ * Toggles the local camera.  While in a group this starts or stops the
+ * local media; on the login screen it starts or stops the live preview.
+ */
+async function toggleCamera() {
+    localCameraOn = !localCameraOn;
+    setNavCamIcon(localCameraOn);
+    setJoinCamIcon(localCameraOn);
+    updateAirIndicator();
+    if(inRoom())
+        await adjustLocalMedia();
+    else
+        await updateLoginPreview();
+}
+
+/**
+ * Opens (or reopens) our own camera stream, reflecting the desired state of
+ * the camera and microphone buttons.  The stream always carries an audio
+ * track, disabled whenever the microphone is off.  If a stream with the
+ * same localId already exists, it is replaced.
+ *
+ * @param {string} [localId]
+ * @param {boolean} videoOn - whether to include a video track.
+ */
+async function openLocalMedia(localId, videoOn) {
     let settings = getSettings();
 
-    /** @type{boolean|MediaTrackConstraints} */
-    let audio = settings.audio ? {deviceId: settings.audio} : false;
-    /** @type{boolean|MediaTrackConstraints} */
-    let video = settings.video ? {deviceId: settings.video} : false;
+    let muted = !localMicOn;
+    if(!!settings.localMute !== muted)
+        updateSettings({localMute: muted});
 
-    if(video) {
-        let resolution = settings.resolution;
-        if(resolution) {
-            video.width = { ideal: resolution[0] };
-            video.height = { ideal: resolution[1] };
-        } else if(settings.blackboardMode) {
-            video.width = { min: 640, ideal: 1920 };
-            video.height = { min: 400, ideal: 1080 };
-        } else {
-            video.aspectRatio = { ideal: 4/3 };
-        }
+    /** @type {MediaTrackConstraints} */
+    let audio = {};
+    if(settings.audio)
+        audio.deviceId = settings.audio;
+    if(!settings.preprocessing) {
+        audio.echoCancellation = false;
+        audio.noiseSuppression = false;
+        audio.autoGainControl = false;
     }
 
-    if(audio) {
-        if(!settings.preprocessing) {
-            audio.echoCancellation = false;
-            audio.noiseSuppression = false;
-            audio.autoGainControl = false;
+    /** @type {MediaTrackConstraints|boolean} */
+    let video = false;
+    if(videoOn) {
+        /** @type {MediaTrackConstraints} */
+        let v = {};
+        if(settings.video)
+            v.deviceId = settings.video;
+        let resolution = settings.resolution;
+        if(resolution) {
+            v.width = { ideal: resolution[0] };
+            v.height = { ideal: resolution[1] };
+        } else if(settings.blackboardMode) {
+            v.width = { min: 640, ideal: 1920 };
+            v.height = { min: 400, ideal: 1080 };
+        } else {
+            v.aspectRatio = { ideal: 4/3 };
         }
+        video = v;
     }
 
     let old = serverConnection.findByLocalId(localId);
@@ -1283,20 +1549,25 @@ async function addLocalMedia(localId) {
         stopStream(old.stream);
     }
 
-    let constraints = {audio: audio, video: video};
     /** @type {MediaStream} */
     let stream = null;
     try {
-        stream = await navigator.mediaDevices.getUserMedia(constraints);
+        stream = await navigator.mediaDevices.getUserMedia(
+            {audio: audio, video: video});
     } catch(e) {
         displayError(e);
+        if(!old) {
+            // the media never started: switch both buttons off
+            localCameraOn = false;
+            localMicOn = false;
+            syncMediaButtons();
+        }
         return;
     }
 
     setMediaChoices(true);
 
     let c;
-
     try {
         c = newUpStream(localId);
     } catch(e) {
@@ -1315,6 +1586,15 @@ async function addLocalMedia(localId) {
             displayWarning(`Unknown filter ${settings.filter}`);
     }
 
+    c.userdata.onclose = function() {
+        // The stream went away (stopped by the user, device failure or
+        // disconnect): switch both buttons off.
+        localCameraOn = false;
+        localMicOn = false;
+        syncMediaButtons();
+        setButtonsVisibility();
+    };
+
     try {
         await setUpStream(c, stream);
         await setMedia(c, settings.mirrorView);
@@ -1324,6 +1604,229 @@ async function addLocalMedia(localId) {
         c.close();
     }
     setButtonsVisibility();
+}
+
+/**
+ * Live preview of the camera and microphone on the login screen.
+ */
+/** @type {MediaStream} */
+let loginPreviewStream = null;
+/** @type {AudioContext} */
+let loginAudioContext = null;
+let loginMeterRunning = false;
+let loginMeterFrame = 0;
+
+function stopLoginMeter() {
+    loginMeterRunning = false;
+    if(loginMeterFrame) {
+        cancelAnimationFrame(loginMeterFrame);
+        loginMeterFrame = 0;
+    }
+    if(loginAudioContext) {
+        loginAudioContext.close().catch(() => {});
+        loginAudioContext = null;
+    }
+    let canvas = document.getElementById('login-meter');
+    if(!(canvas instanceof HTMLCanvasElement))
+        return;
+    let g = canvas.getContext('2d');
+    if(g)
+        g.clearRect(0, 0, canvas.width, canvas.height);
+}
+
+/**
+ * Stops the live preview and hides it.
+ */
+async function stopLoginPreview() {
+    stopLoginMeter();
+    if(loginPreviewStream) {
+        stopStream(loginPreviewStream);
+        loginPreviewStream = null;
+    }
+    let video = document.getElementById('login-video');
+    if(video instanceof HTMLVideoElement) {
+        video.srcObject = null;
+        video.classList.add('invisible');
+    }
+    document.getElementById('login-audio-only').classList.add('invisible');
+    document.getElementById('login-preview').classList.add('invisible');
+}
+
+/**
+ * Starts the live audio level meter of the preview microphone.
+ */
+function startLoginMeter() {
+    stopLoginMeter();
+    if(!loginPreviewStream)
+        return;
+    if(typeof AudioContext === 'undefined')
+        return;
+    if(loginPreviewStream.getAudioTracks().length === 0)
+        return;
+    let canvas = document.getElementById('login-meter');
+    if(!(canvas instanceof HTMLCanvasElement))
+        return;
+    let g = canvas.getContext('2d');
+    if(!g)
+        return;
+    let context = new AudioContext();
+    let source = context.createMediaStreamSource(loginPreviewStream);
+    let analyser = context.createAnalyser();
+    analyser.fftSize = 512;
+    analyser.smoothingTimeConstant = 0.5;
+    source.connect(analyser);
+    loginAudioContext = context;
+    let data = new Uint8Array(analyser.fftSize);
+    loginMeterRunning = true;
+    let nbars = 16;
+    let bw = canvas.width / nbars;
+    let bh = canvas.height;
+    function draw() {
+        if(!loginMeterRunning)
+            return;
+        analyser.getByteTimeDomainData(data);
+        let sum = 0;
+        for(let i = 0; i < data.length; i++) {
+            let v = (data[i] - 128) / 128.0;
+            sum += v * v;
+        }
+        let level = Math.sqrt(sum / data.length);
+        let lit = Math.min(nbars, Math.floor(level * nbars * 3));
+        g.clearRect(0, 0, canvas.width, canvas.height);
+        for(let i = 0; i < nbars; i++) {
+            let color = '#333';
+            if(i < lit) {
+                if(i < nbars * 0.6)
+                    color = '#2ecc71';
+                else if(i < nbars * 0.85)
+                    color = '#f1c40f';
+                else
+                    color = '#e74c3c';
+            }
+            g.fillStyle = color;
+            g.fillRect(Math.floor(i * bw) + 1, 0,
+                       Math.floor(bw) - 2, bh);
+        }
+        loginMeterFrame = requestAnimationFrame(draw);
+    }
+    draw();
+}
+
+/**
+ * Starts (or updates) the live preview on the login screen according to
+ * the state of the camera and microphone buttons.
+ */
+async function updateLoginPreview() {
+    if(mediaChanging)
+        return;
+    mediaChanging = true;
+    try {
+        let settings = getSettings();
+        let videoOn = localCameraOn;
+        let audioOn = localMicOn;
+        if(!videoOn && !audioOn) {
+            await stopLoginPreview();
+            return;
+        }
+        await stopLoginPreview();
+
+        /** @type {MediaTrackConstraints|boolean} */
+        let audio = false;
+        if(audioOn) {
+            /** @type {MediaTrackConstraints} */
+            let a = {};
+            if(settings.audio)
+                a.deviceId = settings.audio;
+            if(!settings.preprocessing) {
+                a.echoCancellation = false;
+                a.noiseSuppression = false;
+                a.autoGainControl = false;
+            }
+            audio = a;
+        }
+        /** @type {MediaTrackConstraints|boolean} */
+        let video = false;
+        if(videoOn) {
+            /** @type {MediaTrackConstraints} */
+            let v = {};
+            if(settings.video)
+                v.deviceId = settings.video;
+            let resolution = settings.resolution;
+            if(resolution) {
+                v.width = { ideal: resolution[0] };
+                v.height = { ideal: resolution[1] };
+            } else if(settings.blackboardMode) {
+                v.width = { min: 640, ideal: 1920 };
+                v.height = { min: 400, ideal: 1080 };
+            } else {
+                v.aspectRatio = { ideal: 4/3 };
+            }
+            video = v;
+        }
+
+        /** @type {MediaStream} */
+        let stream = null;
+        try {
+            stream = await navigator.mediaDevices.getUserMedia(
+                {audio: audio, video: video});
+        } catch(e) {
+            displayError(e);
+            localCameraOn = false;
+            localMicOn = false;
+            syncMediaButtons();
+            await stopLoginPreview();
+            return;
+        }
+        if(!getVisibility('login-container')) {
+            // The user connected while the preview was being acquired:
+            // don't display the preview, and release the device so that
+            // the connection can grab it.
+            stopStream(stream);
+            return;
+        }
+        loginPreviewStream = stream;
+
+        document.getElementById('login-preview').classList.remove('invisible');
+        let videoElt = document.getElementById('login-video');
+        if(!(videoElt instanceof HTMLVideoElement))
+            throw new Error('Bad type for login-video');
+        let audioOnly = document.getElementById('login-audio-only');
+        if(videoOn) {
+            videoElt.classList.remove('invisible');
+            videoElt.classList.add('mirror');
+            videoElt.srcObject = stream;
+            videoElt.play();
+            audioOnly.classList.add('invisible');
+        } else {
+            videoElt.classList.add('invisible');
+            audioOnly.classList.remove('invisible');
+            if(audioOn)
+                startLoginMeter();
+        }
+    } finally {
+        mediaChanging = false;
+    }
+}
+
+/**
+ * Waits until no login-screen media operation is in progress.  Used to
+ * avoid racing a preview that is still being acquired when the user clicks
+ * the Connect button.
+ */
+function waitForMediaIdle() {
+    return new Promise(function(resolve) {
+        if(!mediaChanging) {
+            resolve();
+            return;
+        }
+        let deadline = Date.now() + 5000;
+        let timer = setInterval(function() {
+            if(!mediaChanging || Date.now() >= deadline) {
+                clearInterval(timer);
+                resolve();
+            }
+        }, 20);
+    });
 }
 
 let safariScreenshareDone = false;
@@ -1402,6 +1905,7 @@ async function addFileMedia(file) {
     let presenting = !!findUpMedia('camera');
     let muted = getSettings().localMute;
     if(presenting && !muted) {
+        localMicOn = false;
         setLocalMute(true, true);
         displayWarning('You have been muted');
     }
@@ -2209,15 +2713,27 @@ function setUserStatus(id, elt, userinfo) {
                 camera = true;
         }
     }
-    if(camera) {
+
+    // A muted microphone is the most important signal: if the user has any
+    // media at all and their mic is muted, show a muted-microphone icon so
+    // that the others know they can't be heard.
+    let muted = !!userinfo.data.muted;
+    if((microphone || camera) && muted) {
         elt.classList.remove('user-status-microphone');
-        elt.classList.add('user-status-camera');
-    } else if(microphone) {
-        elt.classList.add('user-status-microphone');
         elt.classList.remove('user-status-camera');
+        elt.classList.add('user-status-muted');
     } else {
-        elt.classList.remove('user-status-microphone');
-        elt.classList.remove('user-status-camera');
+        elt.classList.remove('user-status-muted');
+        if(camera) {
+            elt.classList.remove('user-status-microphone');
+            elt.classList.add('user-status-camera');
+        } else if(microphone) {
+            elt.classList.add('user-status-microphone');
+            elt.classList.remove('user-status-camera');
+        } else {
+            elt.classList.remove('user-status-microphone');
+            elt.classList.remove('user-status-camera');
+        }
     }
 }
 
@@ -2268,8 +2784,6 @@ function displayUsername() {
         text = 'presenter';
     document.getElementById('permspan').textContent = text;
 }
-
-let presentRequested = null;
 
 /**
  * @param {string} s
@@ -2328,9 +2842,6 @@ async function closeSafariStream() {
  * @param {string} message
  */
 async function gotJoined(kind, group, perms, status, data, error, message) {
-    let present = presentRequested;
-    presentRequested = null;
-
     switch(kind) {
     case 'fail':
         if(probingState === 'probing' && error === 'need-username') {
@@ -2375,6 +2886,7 @@ async function gotJoined(kind, group, perms, status, data, error, message) {
         setTitle((status && status.displayName) || capitalise(group));
         displayUsername();
         setButtonsVisibility();
+        syncMediaButtons();
         setChangePassword(pwAuth && !!groupStatus.canChangePassword &&
                           serverConnection.username
         );
@@ -2403,27 +2915,19 @@ async function gotJoined(kind, group, perms, status, data, error, message) {
     else
         this.request(mapRequest(getSettings().request));
 
-    if(('mediaDevices' in navigator) &&
-       ('getUserMedia' in navigator.mediaDevices) &&
+    if(canGetUserMedia() &&
        serverConnection.permissions.indexOf('present') >= 0 &&
        !findUpMedia('camera')) {
-        if(present) {
-            if(present === 'mike')
-                updateSettings({video: ''});
-            else if(present === 'both')
-                delSetting('video');
-            reflectSettings();
-
-            let button = getButtonElement('presentbutton');
-            button.disabled = true;
-            try {
-                await addLocalMedia();
-            } finally {
-                button.disabled = false;
-            }
+        if(localCameraOn || localMicOn) {
+            // The user toggled the camera or the microphone on the login
+            // screen: start the local media now.
+            await stopLoginPreview();
+            await adjustLocalMedia();
+            broadcastMute(!localMicOn);
         } else {
             displayMessage(
-                "Press Enable to enable your camera or microphone"
+                'Your camera and microphone are off.  ' +
+                    'Use the Mic and Camera buttons to enable them.'
             );
         }
     }
@@ -2634,6 +3138,7 @@ function gotUserMessage(id, dest, username, time, privileged, kind, error, messa
             console.error(`Got unprivileged message of kind ${kind}`);
             return;
         }
+        localMicOn = false;
         setLocalMute(true, true);
         let by = username ? ' by ' + username : '';
         displayWarning(`You have been muted${by}`);
@@ -3881,13 +4386,13 @@ document.getElementById('loginform').onsubmit = async function(e) {
 
     setVisibility('passwordform', true);
 
-    if(getInputElement('presentboth').checked)
-        presentRequested = 'both';
-    else if(getInputElement('presentmike').checked)
-        presentRequested = 'mike';
-    else
-        presentRequested = null;
-    getInputElement('presentoff').checked = true;
+    // Wait for any in-flight preview to settle, then stop the live preview;
+    // the media will be (re)started once we have joined the group.
+    await waitForMediaIdle();
+    await stopLoginPreview();
+
+    // Remember the username so the user doesn't have to type it again.
+    setStoredUsername(getInputElement('username').value.trim());
 
     // Connect to the server, gotConnected will join.
     serverConnect();
@@ -4105,6 +4610,15 @@ async function start() {
         window.location.href = groupStatus.authPortal;
     } else {
         setVisibility('login-container', true);
+        syncMediaButtons();
+        // Start the live preview automatically: the camera and the
+        // microphone default to on.
+        updateLoginPreview();
+
+        // Remember the username that the user typed last time.
+        let stored = getStoredUsername();
+        if(stored)
+            getInputElement('username').value = stored;
         document.getElementById('username').focus()
     }
     setViewportHeight();

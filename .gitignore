@@ -5,3 +5,6 @@
 /groups/**/*.json
 /static/**/*.d.ts
 /static/third-party/tasks-vision
+/node_modules/
+/package-lock.json
+
