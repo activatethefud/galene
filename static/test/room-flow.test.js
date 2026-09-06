@@ -406,3 +406,47 @@ test('a server disconnect returns the user to the login screen', async () => {
         app.close();
     }
 });
+
+test('remote tile labels fall back to the participant registry', async () => {
+    const app = await loadApp({webSocket: true});
+    try {
+        const w = app.window;
+        const doc = app.document;
+        await waitFor(
+            () => isVisible(doc, 'login-container'),
+            'login screen was not shown');
+        await joinRoom(app, 'alice', 'secret');
+
+        // The server tells us about another participant (the publisher of a
+        // down stream) whose offer may carry no username.
+        const server = sockets(w)[0];
+        server.serverSend(userAdd('u2', 'Bob Smith'));
+        await waitFor(
+            () => doc.getElementById('user-u2') !== null,
+            'the remote user row did not appear');
+
+        // A down stream whose offer arrived without a username should still
+        // be named from the participant registry (serverConnection.users),
+        // exactly as a camera-on or camera-off remote tile would be.
+        let label = doc.createElement('div');
+        label.id = 'label-d';
+        doc.body.appendChild(label);
+        w.setLabel({localId: 'd', username: '', up: false, source: 'u2'});
+        assert.equal(label.textContent, 'Bob Smith');
+        assert.equal(label.dataset.name, 'Bob Smith');
+        doc.body.removeChild(label);
+
+        // Same for the avatar text shown on a camera-off tile.
+        let avatar = doc.createElement('div');
+        avatar.innerHTML = '<span class="avatar-initials"></span>';
+        doc.body.appendChild(avatar);
+        w.setAvatarText(avatar, {username: '', up: false, source: 'u2'});
+        assert.equal(avatar.querySelector('.avatar-initials').textContent,
+                     'Bob Smith');
+        doc.body.removeChild(avatar);
+
+        assert.deepEqual(app.errors, []);
+    } finally {
+        app.close();
+    }
+});

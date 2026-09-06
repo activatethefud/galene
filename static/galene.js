@@ -2540,6 +2540,12 @@ function setAvatarText(avatar, c) {
     let name = c.username;
     if(!name && c.up && serverConnection && serverConnection.username)
         name = serverConnection.username;
+    // The offer may not have carried the publisher's username; fall back
+    // to the participant registry that is kept fresh by user add/change
+    // messages (mirrors the rename path in setLabel).
+    if(!name && !c.up && serverConnection && serverConnection.users[c.source] &&
+       serverConnection.users[c.source].username)
+        name = serverConnection.users[c.source].username;
     let display = name ? name : getInitials(null);
     let pic = avatar.querySelector('.avatar-initials');
     if(!pic)
@@ -2798,6 +2804,13 @@ function setLabel(c, fallback) {
         // The local user's own camera/screen has no remote username;
         // label it with the name we joined under.
         l = serverConnection.username;
+    if(!l && !c.up && serverConnection &&
+       serverConnection.users[c.source] &&
+       serverConnection.users[c.source].username)
+        // The offer may not have carried the publisher's username; fall
+        // back to the participant registry, which is kept up to date by
+        // user add/change messages.
+        l = serverConnection.users[c.source].username;
     if(l) {
         label.textContent = l;
         label.classList.remove('label-fallback');
@@ -3073,7 +3086,9 @@ function changeUser(id, userinfo) {
         return;
     }
     setUserStatus(id, elt, userinfo);
-    // Keep the tile name plates in sync when a participant renames.
+    // Keep the tile name plates in sync whenever a participant's name is
+    // added or changed, so remote (down) tiles repaint even when their
+    // offer arrived without a username.
     if(serverConnection) {
         for(let streamId in serverConnection.down) {
             let c = serverConnection.down[streamId];
