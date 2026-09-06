@@ -55,9 +55,20 @@ on the login/Connect screen (live preview) and in the room top bar
   the two flags and is the single funnel for UI sync.
 - Mic-mute state is shared with the rest of the group via a per-user data
   broadcast: `broadcastMute(muted)` sends
-  `userAction('setdata', own id, {'muted': muted})`; receivers render a red
-  mic-off glyph (`.user-status-muted`, `#users` list) in
-  `setUserStatus()`.
+  `userAction('setdata', own id, {'muted': muted})`; receivers re-render the
+  row in `setUserStatus()`.
+- Each participant-list row (in `setUserStatus()`, galene.js) shows an
+  initials avatar circle (`.user-avatar`), the name
+  (`.user-status-name`), and Mic/Camera icons (`.user-status-icon`) that
+  mirror the top-bar toggles: green `fa-microphone` when the user is
+  audible, red `fa-microphone-slash` (`.user-status-off`) when muted or
+  off, and `fa-video`/`fa-video-slash` for the camera.  The old single
+  glyph classes `user-status-muted/-microphone/-camera` are gone; only
+  `user-status-raisehand` (a badge on the avatar) remains.
+- Tiles for a user whose camera is off but mic is on show a generated
+  avatar (initials, see `getInitials()`/`setAvatarText()`) instead of a
+  black canvas: `showHideMedia()` reveals `.avatar` inside the `.peer`
+  tile when a stream has no video track.
 - A floating "on-air" pill `#air-indicator` (bottom-center, animated dot)
   shows while `localMicOn || localCameraOn` **and** `inRoom()`.
 - `gotClose()` resets the toggles to `true` and restarts the login preview,
@@ -91,6 +102,8 @@ Files: `static/test/harness.js` (shared `loadApp` + stubs), and the test
 suites in `static/test/*.test.js`.  `loadApp(opts)` waits for the login
 screen **and** the auto-started media preview before resolving, so the
 initial state is deterministic (both toggles ON, one getUserMedia call).
+`userlist.test.js` renders participant rows by calling `setUserStatus()`
+directly on a detached element, so no WebSocket/RTC plumbing is needed.
 
 Note for tests: because `start()` calls `enumerateDevices` + 
 `reflectSettings`, the enumerated default device ids (`cam1`, `mic1` in the

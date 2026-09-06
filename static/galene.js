@@ -345,6 +345,12 @@ async function join() {
         }
         let pw = getInputElement('password').value;
         getInputElement('password').value = '';
+        // Remember this login attempt so that a confirmed join can persist
+        // the credentials for automatic login.  Only applies to groups
+        // that take a username and password directly (not an auth server,
+        // whose credentials are single-use).
+        if(!groupStatus.authServer)
+            pendingLogin = {username: username, password: pw};
         if(!groupStatus.authServer) {
             pwAuth = true;
             credentials = pw;
@@ -695,6 +701,75 @@ function setStoredUsername(name) {
     }
 }
 
+// Automatic login: after a successful password login we remember the
+// credentials in localStorage for a limited time, so that returning to the
+// group page within the window logs the user straight in without asking.
+const LOGIN_STORAGE_KEY = 'galene.login';
+
+// The automatic login expires after this much time has passed since the
+// user last entered the room (24 hours).
+const LOGIN_TTL = 24 * 60 * 60 * 1000;
+
+/**
+ * @returns {{username: string, password: string}|null} the remembered
+ * login credentials if present and not yet expired, otherwise null.
+ */
+function getStoredLogin() {
+    try {
+        let raw = window.localStorage.getItem(LOGIN_STORAGE_KEY);
+        if(!raw)
+            return null;
+        let data = JSON.parse(raw);
+        if(typeof data !== 'object' || data === null)
+            return null;
+        if(typeof data.username !== 'string' ||
+           typeof data.password !== 'string' ||
+           typeof data.time !== 'number')
+            return null;
+        if(Date.now() - data.time > LOGIN_TTL) {
+            // Expired: forget it.
+            clearStoredLogin();
+            return null;
+        }
+        return {username: data.username, password: data.password};
+    } catch(e) {
+        return null;
+    }
+}
+
+/**
+ * Stores the credentials of a successful login and marks them as fresh.
+ *
+ * @param {string} username
+ * @param {string} password
+ */
+function setStoredLogin(username, password) {
+    try {
+        window.localStorage.setItem(
+            LOGIN_STORAGE_KEY,
+            JSON.stringify({
+                username: username,
+                password: password,
+                time: Date.now(),
+            }),
+        );
+    } catch(e) {
+        // Ignore; storage may be unavailable.
+    }
+}
+
+function clearStoredLogin() {
+    try {
+        window.localStorage.removeItem(LOGIN_STORAGE_KEY);
+    } catch(e) {
+        // Ignore; storage may be unavailable.
+    }
+}
+
+// Credentials of the login attempt currently in flight; they are written
+// to localStorage only once the server has confirmed the join.
+let pendingLogin = null;
+
 /**
  * Updates the floating "you are on air" indicator that reminds the user
  * that their microphone or camera is on.  Only shown while in a room.
@@ -770,6 +845,9 @@ document.getElementById('sharebutton').onclick = function(e) {
 
 document.getElementById('logoutbutton').onclick = function(e) {
     e.preventDefault();
+    // An explicit logout drops the automatic-login credentials.
+    pendingLogin = null;
+    clearStoredLogin();
     if(serverConnection)
         serverConnection.close();
     closeNav();
@@ -2104,7 +2182,15 @@ async function setMedia(c, mirror, video) {
         peersdiv.appendChild(div);
     }
 
-    showHideMedia(c, div)
+    let avatar = div.querySelector('.avatar');
+    if(!avatar) {
+        avatar = document.createElement('div');
+        avatar.className = 'avatar invisible';
+        let pic = document.createElement('span');
+        pic.className = 'avatar-initials';
+        avatar.appendChild(pic);
+        div.appendChild(avatar);
+    }
 
     let media = /** @type {HTMLVideoElement} */
         (document.getElementById('media-' + c.localId));
@@ -2150,6 +2236,8 @@ async function setMedia(c, mirror, video) {
     setLabel(c);
     setMediaStatus(c);
 
+    showHideMedia(c, div)
+
     showVideo();
     resizePeers();
 }
@@ -2175,6 +2263,70 @@ function showHideMedia(c, elt) {
         elt.classList.remove('peer-hidden');
     else
         elt.classList.add('peer-hidden');
+
+    let avatar = elt.querySelector('.avatar');
+    if(avatar) {
+        let hasVideo = false;
+        if(c.stream) {
+            let tracks = c.stream.getTracks();
+            for(let i = 0; i < tracks.length; i++) {
+                if(tracks[i].kind === 'video') {
+                    hasVideo = true;
+                    break;
+                }
+            }
+        }
+        if(display && !hasVideo) {
+            avatar.classList.remove('invisible');
+            /** @type {HTMLElement} */ (avatar).classList.add('no-video');
+            setAvatarText(avatar, c);
+        } else {
+            avatar.classList.add('invisible');
+            /** @type {HTMLElement} */ (avatar).classList.remove('no-video');
+        }
+    }
+}
+
+/**
+ * Sets the initials of the participant shown in a tile avatar.
+ *
+ * @param {HTMLElement} avatar
+ * @param {Stream} c
+ */
+/**
+ * Computes a short initials string (up to two characters) from a display
+ * name, or a fallback for anonymous participants.
+ *
+ * @param {string|null} name
+ * @returns {string}
+ */
+function getInitials(name) {
+    if(!name || name === '(anon)')
+        return '?';
+    let words = name.split(/\s+/).filter(w => w.length > 0);
+    let initials = '';
+    for(let i = 0; i < words.length && initials.length < 2; i++)
+        initials += words[i].charAt(0).toUpperCase();
+    if(initials === '')
+        initials = '?';
+    return initials;
+}
+
+/**
+ * Sets the initials of the participant shown in a tile avatar.
+ *
+ * @param {HTMLElement} avatar
+ * @param {Stream} c
+ */
+function setAvatarText(avatar, c) {
+    let name = c.username;
+    if(!name && c.up && serverConnection && serverConnection.username)
+        name = serverConnection.username;
+    let pic = avatar.querySelector('.avatar-initials');
+    if(!pic)
+        return;
+    pic.textContent = getInitials(name);
+    avatar.title = name ? name : '(anon)';
 }
 
 /**
@@ -2698,13 +2850,19 @@ function changeUser(id, userinfo) {
  * @param {user} userinfo
  */
 function setUserStatus(id, elt, userinfo) {
-    elt.textContent = userinfo.username ? userinfo.username : '(anon)';
+    // Rebuild the row from scratch: the user name plus Mic and Camera
+    // indicators that mirror the toggle buttons in the top bar.
+    elt.textContent = '';
+    elt.classList.remove('user-status-muted');
+    elt.classList.remove('user-status-camera');
+    elt.classList.remove('user-status-microphone');
+
     if(userinfo.data.raisehand)
         elt.classList.add('user-status-raisehand');
     else
         elt.classList.remove('user-status-raisehand');
 
-    let microphone=false, camera = false;
+    let microphone = false, camera = false;
     for(let label in userinfo.streams) {
         for(let kind in userinfo.streams[label]) {
             if(kind === 'audio')
@@ -2714,27 +2872,51 @@ function setUserStatus(id, elt, userinfo) {
         }
     }
 
-    // A muted microphone is the most important signal: if the user has any
-    // media at all and their mic is muted, show a muted-microphone icon so
-    // that the others know they can't be heard.
+    // We can only hear a user who has an audio track that isn't muted.
     let muted = !!userinfo.data.muted;
-    if((microphone || camera) && muted) {
-        elt.classList.remove('user-status-microphone');
-        elt.classList.remove('user-status-camera');
-        elt.classList.add('user-status-muted');
+    let micOn = microphone && !muted;
+
+    let name = document.createElement('span');
+    name.className = 'user-status-name';
+    name.textContent = userinfo.username ? userinfo.username : '(anon)';
+    name.title = userinfo.username ? userinfo.username : '(anon)';
+
+    let avatar = document.createElement('span');
+    avatar.className = 'user-avatar';
+    avatar.textContent = getInitials(userinfo.username);
+    avatar.title = userinfo.username ? userinfo.username : '(anon)';
+    elt.appendChild(avatar);
+
+    elt.appendChild(name);
+
+    let icons = document.createElement('span');
+    icons.className = 'user-status-icons';
+
+    let mic = document.createElement('i');
+    mic.className = 'fas user-status-icon';
+    if(micOn) {
+        mic.classList.add('fa-microphone');
+        mic.title = 'Microphone on';
     } else {
-        elt.classList.remove('user-status-muted');
-        if(camera) {
-            elt.classList.remove('user-status-microphone');
-            elt.classList.add('user-status-camera');
-        } else if(microphone) {
-            elt.classList.add('user-status-microphone');
-            elt.classList.remove('user-status-camera');
-        } else {
-            elt.classList.remove('user-status-microphone');
-            elt.classList.remove('user-status-camera');
-        }
+        mic.classList.add('fa-microphone-slash');
+        mic.classList.add('user-status-off');
+        mic.title = muted ? 'Microphone muted' : 'Microphone off';
     }
+    icons.appendChild(mic);
+
+    let cam = document.createElement('i');
+    cam.className = 'fas user-status-icon';
+    if(camera) {
+        cam.classList.add('fa-video');
+        cam.title = 'Camera on';
+    } else {
+        cam.classList.add('fa-video-slash');
+        cam.classList.add('user-status-off');
+        cam.title = 'Camera off';
+    }
+    icons.appendChild(cam);
+
+    elt.appendChild(icons);
 }
 
 /**
@@ -2850,6 +3032,10 @@ async function gotJoined(kind, group, perms, status, data, error, message) {
         } else {
             token = null;
             displayError('The server said: ' + message);
+            // The stored credentials were rejected: forget them so that
+            // we don't keep attempting an automatic login.
+            pendingLogin = null;
+            clearStoredLogin();
         }
         closeSafariStream();
         this.close();
@@ -2900,6 +3086,13 @@ async function gotJoined(kind, group, perms, status, data, error, message) {
         closeSafariStream();
         this.close();
         return;
+    }
+
+    // Persist the credentials of this successful join, so that the next
+    // visit within the login window can log the user in automatically.
+    if(pendingLogin) {
+        setStoredLogin(pendingLogin.username, pendingLogin.password);
+        pendingLogin = null;
     }
 
     let input = /** @type{HTMLTextAreaElement} */
@@ -4473,6 +4666,9 @@ getSelectElement('test-audioselect').onchange = async function(e) {
 };
 
 document.getElementById('disconnectbutton').onclick = function(e) {
+    // An explicit logout drops the automatic-login credentials.
+    pendingLogin = null;
+    clearStoredLogin();
     serverConnection.close();
     closeNav();
 };
@@ -4567,6 +4763,24 @@ async function serverConnect() {
     }
 }
 
+/**
+ * Shows the Connect screen and starts the live media preview, prefilling
+ * the username field.
+ */
+function showLogin() {
+    setVisibility('login-container', true);
+    syncMediaButtons();
+    // Start the live preview automatically: the camera and the microphone
+    // default to on.
+    updateLoginPreview();
+
+    // Remember the username that the user typed last time.
+    let stored = getStoredUsername();
+    if(stored)
+        getInputElement('username').value = stored;
+    document.getElementById('username').focus();
+}
+
 async function start() {
     try {
         let r = await fetch(".status")
@@ -4609,17 +4823,23 @@ async function start() {
     } else if(groupStatus.authPortal) {
         window.location.href = groupStatus.authPortal;
     } else {
-        setVisibility('login-container', true);
-        syncMediaButtons();
-        // Start the live preview automatically: the camera and the
-        // microphone default to on.
-        updateLoginPreview();
-
-        // Remember the username that the user typed last time.
-        let stored = getStoredUsername();
-        if(stored)
-            getInputElement('username').value = stored;
-        document.getElementById('username').focus()
+        let auto = getStoredLogin();
+        if(auto) {
+            // Returning visitor within the login window: log straight in
+            // with the remembered credentials.
+            setStoredUsername(auto.username);
+            getInputElement('username').value = auto.username;
+            getInputElement('password').value = auto.password;
+            setVisibility('passwordform', true);
+            await serverConnect();
+            // If the connection failed before it was established (e.g.
+            // the server is unreachable), fall back to the regular login
+            // form instead of leaving the user staring at a blank page.
+            if(!(serverConnection && serverConnection.socket))
+                showLogin();
+        } else {
+            showLogin();
+        }
     }
     setViewportHeight();
 }

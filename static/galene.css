@@ -1257,32 +1257,48 @@ header .collapse:hover {
     background-color: #f2f2f2;
 }
 
-#users > div::before {
-    content: "\f111";
-    font-family: 'Font Awesome 6 Free';
-    color: #20b91e;
-    margin-right: 5px;
-    font-weight: 900;
-}
-
+/* Raised hand: small badge overlapping the initials avatar. */
 #users > div.user-status-raisehand::before {
     content: "\f256";
-}
-
-#users > div::after {
     font-family: 'Font Awesome 6 Free';
-    color: #808080;
-    margin-left: 5px;
     font-weight: 900;
+    color: #fff;
+    background: #eab308;
+    border: 1.5px solid #fff;
+    border-radius: 50%;
+    font-size: 9px;
+    width: 16px;
+    height: 16px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    position: absolute;
+    left: 24px;
+    bottom: 2px;
+    z-index: 2;
+    line-height: 1;
+}
+
+/* Mic and Camera indicators inside each participant row, mirroring the
+   toggle buttons in the top bar. */
+#users .user-p .user-status-name {
+    white-space: pre;
+}
+
+#users .user-p .user-status-icons {
     float: right;
+    white-space: nowrap;
+    margin-left: 8px;
 }
 
-#users > div.user-status-microphone::after {
-    content: "\f130";
+#users .user-p .user-status-icon {
+    font-weight: 900;
+    margin-left: 6px;
+    color: #555;
 }
 
-#users > div.user-status-camera::after {
-    content: "\f030";
+#users .user-p .user-status-icon.user-status-off {
+    color: #d03e3e;
 }
 
 .close-icon {
@@ -1551,6 +1567,10 @@ header .collapse:hover {
     text-overflow: ellipsis;
 }
 
+.air-indicator.invisible {
+    display: none;
+}
+
 .air-indicator-dot {
     flex: none;
     width: 0.6em;
@@ -1567,13 +1587,6 @@ header .collapse:hover {
     100% { box-shadow: 0 0 0 0 rgba(46, 204, 113, 0); }
 }
 
-/* Muted-microphone indicator in the participant list */
-
-#users > div.user-status-muted::after {
-    content: "\f131";
-    color: #d03e3e;
-}
-
 /* ------------------------------------------------------------------ */
 /*  UI refinement layer                                                */
 /*  Visual polish only: colours, radii, shadows, focus & hover states. */
@@ -1583,7 +1596,6 @@ header .collapse:hover {
     --brand: #6b21a8;
     --brand-deep: #4d0b78;
     --brand-bright: #8b5cf6;
-    --brand-grad: linear-gradient(90deg, #6b21a8, #8b5cf6);
     --ok: #16a34a;
     --ok-deep: #15803d;
     --danger: #dc2626;
@@ -1669,7 +1681,7 @@ textarea:focus {
 
 .navbar,
 .topnav .navbar {
-    background: var(--brand-grad);
+    background: var(--brand-deep);
     box-shadow: 0 1px 0 rgba(255, 255, 255, .08) inset,
                 0 2px 6px rgba(16, 24, 40, .18);
 }
@@ -1704,7 +1716,7 @@ textarea:focus {
 /* --- participant list -------------------------------------------- */
 
 .users-header {
-    background: var(--brand-grad);
+    background: var(--brand-deep);
 }
 
 #left-sidebar {
@@ -1724,25 +1736,18 @@ textarea:focus {
     background: var(--surface-soft);
 }
 
-#users > div::after {
-    color: #94a3b8;
+#users .user-status-icon {
+    color: #6b7280;
 }
 
-#users > div.user-status-camera::after {
-    color: var(--brand);
-}
-
-#users > div.user-status-microphone::after {
-    color: var(--ok-deep);
+#users .user-status-icon.user-status-off {
+    color: var(--danger);
 }
 
 /* --- login screen ------------------------------------------------ */
 
 .login-container {
-    background:
-        radial-gradient(1200px 600px at 80% -10%, rgba(139, 92, 246, .10), transparent 60%),
-        radial-gradient(900px 500px at 0% 110%, rgba(77, 11, 120, .08), transparent 60%),
-        var(--surface-soft);
+    background: var(--surface-soft);
 }
 
 .login-box {
@@ -1922,17 +1927,17 @@ legend {
 }
 
 .toastify.info {
-    background: linear-gradient(to right, #15803d, #16a34a);
+    background: var(--ok-deep);
     color: #fff;
 }
 
 .toastify.warning {
-    background: linear-gradient(to right, #a16207, #d97706);
+    background: #d97706;
     color: #fff;
 }
 
 .toastify.error {
-    background: linear-gradient(to right, #b91c1c, #dc2626);
+    background: var(--danger);
     color: #fff;
 }
 
@@ -1965,3 +1970,94 @@ legend {
         animation: none;
     }
 }
+
+/* --- participant tile avatar (camera off, mic on) ------------------ */
+
+.peer .avatar {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 20px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    pointer-events: none;
+    background:
+        radial-gradient(circle at 35% 30%, rgba(139, 92, 246, .25),
+                        transparent 60%),
+        #1e1b2e;
+}
+
+.peer .avatar.invisible {
+    display: none;
+}
+
+.peer .avatar .avatar-initials {
+    color: #fff;
+    font-size: clamp(1.4rem, 7vh, 3.5rem);
+    font-weight: 700;
+    line-height: 1;
+    letter-spacing: .02em;
+    text-shadow: 0 2px 8px rgba(0, 0, 0, .45);
+    white-space: nowrap;
+}
+
+/* --- participant-list rows with initials avatar --------------------- */
+
+#users .user-p {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    height: auto;
+    min-height: 44px;
+    padding: 6px 10px !important;
+    line-height: 20px;
+    white-space: normal;
+}
+
+#left-sidebar.active #users .user-p {
+    padding: 6px 5px !important;
+}
+
+#users .user-p .user-avatar {
+    flex: none;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 30px;
+    height: 30px;
+    border-radius: 50%;
+    background:
+        radial-gradient(circle at 32% 28%, #8b5cf6, transparent 65%),
+        var(--brand, #6b21a8);
+    color: #fff;
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: .03em;
+    text-transform: uppercase;
+    line-height: 1;
+    overflow: hidden;
+    user-select: none;
+}
+
+#users .user-p .user-status-name {
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+#users .user-p .user-status-icons {
+    float: none;
+    margin-left: 0;
+    display: inline-flex;
+    align-items: center;
+    white-space: nowrap;
+}
+
+#users .user-p .user-status-icon {
+    margin-left: 7px;
+}
+

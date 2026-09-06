@@ -73,6 +73,16 @@ function installStubs(window, opts) {
 
     window.sessionStorage.setItem('settings', JSON.stringify(settings));
 
+    // Seed localStorage (used by the automatic-login feature) before the
+    // scripts run.
+    for(const [key, value] of Object.entries(opts.localStorage || {})) {
+        try {
+            window.localStorage.setItem(key, value);
+        } catch(e) {
+            // ignore
+        }
+    }
+
     let trackSeq = 0;
     let streamSeq = 0;
 
@@ -176,6 +186,29 @@ function installStubs(window, opts) {
         };
     }
 
+    // A minimal WebSocket implementation, only installed when requested.
+    // jsdom does not implement WebSocket; galene.js calls serverConnect()
+    // only when a token is present or when automatic login kicks in.
+    // The fake records the URL and never opens, which lets us observe that
+    // a connection attempt was made without driving the full protocol.
+    if(opts.webSocket) {
+        window.WebSocket = class {
+            constructor(url) {
+                window.__wsCalls = window.__wsCalls || [];
+                window.__wsCalls.push(url);
+                this.url = url;
+                this.readyState = 0;
+                this.OPEN = 1;
+                this.CONNECTING = 0;
+                this.CLOSED = 3;
+            }
+            send() {}
+            close() {
+                this.readyState = 3;
+            }
+        };
+    }
+
     // jsdom's HTMLMediaElement.play() rejects (no real media); the preview
     // code calls play() without awaiting it.
     try {
@@ -240,8 +273,13 @@ export async function waitFor(what, message, timeout = 4000) {
  *
  * @param {object} [opts]
  * @param {object} [opts.settings] initial settings for sessionStorage
+ * @param {object} [opts.localStorage] initial entries for localStorage
  * @param {Array<{deviceId:string,kind:string,label:string,groupId:string}>} [opts.devices]
  * @param {object} [opts.status] JSON returned by fetch(".status")
+ * @param {boolean} [opts.webSocket] install a recording fake WebSocket
+ * @param {boolean} [opts.waitLogin] wait for the login screen and the
+ *   automatic preview before resolving (default true); set to false when
+ *   the page under test auto-logs in and never shows the login screen.
  */
 export async function loadApp(opts = {}) {
     const virtualConsole = new VirtualConsole();
@@ -276,24 +314,26 @@ export async function loadApp(opts = {}) {
         });
     });
 
-    await waitFor(
-        () => {
-            const el = window.document.getElementById('login-container');
-            return !!(el && !el.classList.contains('invisible'));
-        },
-        'login screen did not appear (start() may have failed): ' +
-            JSON.stringify(window.__errors));
+    if(opts.waitLogin !== false) {
+        await waitFor(
+            () => {
+                const el = window.document.getElementById('login-container');
+                return !!(el && !el.classList.contains('invisible'));
+            },
+            'login screen did not appear (start() may have failed): ' +
+                JSON.stringify(window.__errors));
 
-    // The camera and microphone default to on, so start() begins a live
-    // preview as soon as the login screen is shown.  Wait until it has
-    // settled so that the initial state is deterministic.
-    await waitFor(
-        () => {
-            const el = window.document.getElementById('login-preview');
-            return !!(el && !el.classList.contains('invisible'));
-        },
-        'auto-preview did not appear (default-on media may have failed): ' +
-            JSON.stringify(window.__errors));
+        // The camera and microphone default to on, so start() begins a live
+        // preview as soon as the login screen is shown.  Wait until it has
+        // settled so that the initial state is deterministic.
+        await waitFor(
+            () => {
+                const el = window.document.getElementById('login-preview');
+                return !!(el && !el.classList.contains('invisible'));
+            },
+            'auto-preview did not appear (default-on media may have failed): ' +
+                JSON.stringify(window.__errors));
+    }
 
     return {
         dom,
