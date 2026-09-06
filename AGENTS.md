@@ -51,6 +51,13 @@ on the login/Connect screen (live preview) and in the room top bar
 - `toggleMicrophone()` / `toggleCamera()` decide between the in-room path
   (`adjustLocalMedia`) and the login path (`updateLoginPreview`) by
   `inRoom()` (socket open AND login container hidden).
+- `mediaChanging` guards both update paths against concurrent runs; a
+  toggle that arrives while one is running sets `mediaQueued` and the
+  running update re-runs itself in its `finally` block.  Never silently
+  drop a media toggle: an in-flight `updateLoginPreview` that finishes
+  after the camera/mic button was switched off must not display the stale
+  stream (that left the login preview showing the camera while both
+  buttons were off — see `static/test/preview-sync.test.js`).
 - `syncMediaButtons()` refreshes all four toggle-button icon states from
   the two flags and is the single funnel for UI sync.
 - Mic-mute state is shared with the rest of the group via a per-user data
@@ -171,6 +178,10 @@ checkboxes and asserts the resulting `sessionStorage` `settings` + the
 `#box`.  `misc.test.js` covers button visibility on the login screen vs in
 the room, the on-air indicator, permission upgrades via a mid-session
 joined `'change'` message, and the op-only command rejections.
+`preview-sync.test.js` reproduces a login-preview race by holding
+`getUserMedia` open while the Mic/Camera buttons are toggled, and asserts
+the preview ends up matching the buttons (hidden when both are off,
+audio-only when only the camera is switched off).
 
 Note: jsdom does not implement `HTMLElement.innerText`, but toastify.js
 uses it; the harness polyfills `innerText` onto `HTMLElement.prototype`

@@ -615,6 +615,12 @@ getInputElement('hqaudiobox').onchange = function(e) {
 let localCameraOn = true;
 let localMicOn = true;
 let mediaChanging = false;
+// Set when a media-state change arrives while an update is already in
+// flight.  The running update re-runs when it finishes, so a toggle is
+// never silently dropped and the preview cannot end up out of sync with
+// the buttons (e.g. a camera preview left visible after the camera button
+// was switched off).
+let mediaQueued = false;
 
 /**
  * @param {boolean} muted
@@ -1667,8 +1673,13 @@ function inRoom() {
  * is off.
  */
 async function adjustLocalMedia() {
-    if(mediaChanging)
+    if(mediaChanging) {
+        // Another media update is already running.  Queue a refresh instead
+        // of dropping this one, so the local media ends up matching the
+        // current state of the Mic/Camera buttons.
+        mediaQueued = true;
         return;
+    }
     mediaChanging = true;
     try {
         let c = findUpMedia('camera');
@@ -1696,6 +1707,12 @@ async function adjustLocalMedia() {
         await openLocalMedia(null, localCameraOn);
     } finally {
         mediaChanging = false;
+        if(mediaQueued) {
+            mediaQueued = false;
+            // A toggle arrived while we were running; re-run so that the
+            // local media matches the current state of the buttons.
+            adjustLocalMedia();
+        }
     }
 }
 
@@ -1953,8 +1970,13 @@ function startLoginMeter() {
  * the state of the camera and microphone buttons.
  */
 async function updateLoginPreview() {
-    if(mediaChanging)
+    if(mediaChanging) {
+        // Another preview update is already running.  Queue a refresh
+        // instead of dropping this one, so the preview always ends up
+        // matching the current state of the Mic/Camera buttons.
+        mediaQueued = true;
         return;
+    }
     mediaChanging = true;
     try {
         let settings = getSettings();
@@ -2020,6 +2042,15 @@ async function updateLoginPreview() {
             stopStream(stream);
             return;
         }
+        if(videoOn !== localCameraOn || audioOn !== localMicOn) {
+            // The camera or microphone was toggled while the preview was
+            // being acquired.  Discard this stale stream instead of
+            // displaying it; the queued refresh (below) re-runs with the
+            // current state of the buttons.
+            stopStream(stream);
+            mediaQueued = true;
+            return;
+        }
         loginPreviewStream = stream;
 
         document.getElementById('login-preview').classList.remove('invisible');
@@ -2041,6 +2072,12 @@ async function updateLoginPreview() {
         }
     } finally {
         mediaChanging = false;
+        if(mediaQueued) {
+            mediaQueued = false;
+            // A toggle arrived while we were acquiring the preview; re-run
+            // with the current state so the preview matches the buttons.
+            updateLoginPreview();
+        }
     }
 }
 
