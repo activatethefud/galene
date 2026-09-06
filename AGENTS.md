@@ -154,7 +154,11 @@ messages (`{type:'joined',kind:'fail'|'join',...}`).  Because jsdom has no
 `'present'` so the auto-present/media path is skipped.  After driving an
 action that closes the socket (e.g. logout), always `waitFor` the login
 screen — the fake socket's `onclose` is asynchronous, and asserting or
-`app.close()`ing before it settles leaks a timer.
+`app.close()`ing before it settles leaks a timer.  `room-flow.test.js`
+uses the same scripted socket to cover the in-room flows: password login,
+chat send/receive (plain and `/me`), participant add/rename/remove,
+operator mute (`usermessage` kind `'mute'`, privileged only), and the
+disconnect-returns-to-login path.
 
 Note for tests: because `start()` calls `enumerateDevices` + 
 `reflectSettings`, the enumerated default device ids (`cam1`, `mic1` in the
