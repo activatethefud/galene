@@ -45,6 +45,24 @@ function installStubs(window, opts) {
     window.__streams = [];
     window.__gumFailNext = false;
 
+    // jsdom (up to at least 24.x) does not implement the `innerText`
+    // property; toastify.js sets the toast text through `innerText`, so
+    // without this polyfill toast messages never appear in the DOM.
+    // Mirror the browser semantics onto `textContent`.
+    try {
+        Object.defineProperty(window.HTMLElement.prototype, 'innerText', {
+            configurable: true,
+            get() {
+                return this.textContent;
+            },
+            set(value) {
+                this.textContent = value;
+            },
+        });
+    } catch(e) {
+        // ignore
+    }
+
     window.addEventListener('error', (e) => {
         window.__errors.push(e.error || e.message);
     });
@@ -381,6 +399,118 @@ export async function loadApp(opts = {}) {
         failNextGum() { window.__gumFailNext = true; },
         close() { dom.window.close(); },
     };
+}
+
+/**
+ * Shared protocol-driving helpers for the scriptable fake WebSocket.
+ * The fake socket is installed by loadApp when opts.webSocket is set; each
+ * connection appears both in window.__wsCalls (URLs) and window.__sockets
+ * (the socket instances).  driveConnection walks one socket through the
+ * handshake and the first join message, handing the join message to
+ * `answer` and sending its return value back to the client.
+ */
+
+export function sockets(window) {
+    return window.__sockets || [];
+}
+
+export function wsCalls(window) {
+    return window.__wsCalls || [];
+}
+
+export async function waitForSocket(window, index = 0, message) {
+    await waitFor(
+        () => (window.__sockets || []).length > index,
+        message || `a socket did not open (index ${index})`,
+    );
+    return sockets(window)[index];
+}
+
+export async function waitForSent(socket, type, what, message) {
+    await waitFor(
+        () => (socket.received || []).some(
+            (m) => m.type === type && (!what || what(m))),
+        message || `the client did not send a ${type} message`,
+    );
+    return (socket.received || []).filter(
+        (m) => m.type === type && (!what || what(m)))[0];
+}
+
+/** Drive one client connection: open, handshake, then the client's join. */
+export async function driveConnection(window, socket, answer) {
+    socket.serverOpen();
+    await waitForSent(socket, 'handshake');
+    socket.serverSend({type: 'handshake', version: ['2']});
+    const join = await waitForSent(socket, 'join');
+    socket.serverSend(answer(join));
+    return {join, id: (socket.received.find((m) => m.type === 'handshake') || {}).id};
+}
+
+/** Answer builders for the server -> client 'joined' messages. */
+export function needUsernameReply(join) {
+    return {
+        type: 'joined', kind: 'fail', group: join.group,
+        error: 'need-username', value: 'Username required',
+    };
+}
+
+export function joinReply(join, username, permissions = ['message']) {
+    return {
+        type: 'joined', kind: 'join', group: join.group,
+        username, permissions, status: {}, data: {},
+    };
+}
+
+/** Dispatch a submit event on the login form, submitting the given fields. */
+export function submitLogin(document, window, {username, password} = {}) {
+    if(username !== undefined)
+        document.getElementById('username').value = username;
+    if(password !== undefined)
+        document.getElementById('password').value = password;
+    document.getElementById('loginform').dispatchEvent(
+        new window.Event('submit', {cancelable: true}));
+}
+
+/** Submit the chat input (set value, then submit #inputform). */
+export function submitChat(document, window, text) {
+    document.getElementById('input').value = text;
+    document.getElementById('inputform').dispatchEvent(
+        new window.Event('submit', {cancelable: true}));
+}
+
+/** Build an inbound {type:'user', kind:'add'|'change'|'delete'} message. */
+export function userMessage(type, kind, id, username, data, streams, permissions) {
+    return {
+        type, kind, id, username, permissions: permissions || [],
+        data: data || {}, streams: streams || {},
+    };
+}
+
+/** Build an inbound {type:'chat', kind:...} / chathistory message. */
+export function chatMessage(id, username, value, kind = '', {history = false, dest} = {}) {
+    const m = {
+        type: history ? 'chathistory' : 'chat',
+        source: id, username, value: String(value),
+        time: '2026-09-06T12:00:00.000Z',
+    };
+    if(kind)
+        m.kind = kind;
+    if(dest !== undefined)
+        m.dest = dest;
+    return m;
+}
+
+/** Join a room with a username+password through the real login flow. */
+export async function joinRoom(app, {username, password} = {}) {
+    submitLogin(app.document, app.window, {username, password});
+    const socket = await waitForSocket(app.window, 0);
+    const {id} = await driveConnection(
+        app.window, socket,
+        (join) => joinReply(join, username || 'alice'));
+    await waitFor(
+        () => !isVisible(app.document, 'login-container'),
+        'the login screen did not close after joining');
+    return {socket, id};
 }
 
 /**

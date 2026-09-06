@@ -158,7 +158,23 @@ screen — the fake socket's `onclose` is asynchronous, and asserting or
 uses the same scripted socket to cover the in-room flows: password login,
 chat send/receive (plain and `/me`), participant add/rename/remove,
 operator mute (`usermessage` kind `'mute'`, privileged only), and the
-disconnect-returns-to-login path.
+disconnect-returns-to-login path.  `commands.test.js` submits chat input
+via the form and asserts the `handleInput()` command table (plain text,
+`/me`, `//` literal, `/help`, `/leave`, `/msg`, `/raise`+`/unraise`,
+`/set`+`/unset`, op-only `/clear`, `/mute`, `/warn`, `/kick`, and
+`/invite`, including the permission-predicate rejections).
+`options.test.js` dispatches `change` events on the settings selects and
+checkboxes and asserts the resulting `sessionStorage` `settings` + the
+`{type:'request'}` message for the request select.
+`token-handling.test.js` covers `parseToken()`, and the privileged
+`usermessage` kinds `'token'`/`'tokenlist'`/`'userinfo'` rendering into
+`#box`.  `misc.test.js` covers button visibility on the login screen vs in
+the room, the on-air indicator, permission upgrades via a mid-session
+joined `'change'` message, and the op-only command rejections.
+
+Note: jsdom does not implement `HTMLElement.innerText`, but toastify.js
+uses it; the harness polyfills `innerText` onto `HTMLElement.prototype`
+(getter/setter backed by `textContent`) so toast assertions work.
 
 Note for tests: because `start()` calls `enumerateDevices` + 
 `reflectSettings`, the enumerated default device ids (`cam1`, `mic1` in the
