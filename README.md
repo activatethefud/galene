@@ -1,5 +1,14 @@
 # The Galene videoconferencing system
 
+> **Unofficial fork — not affiliated with the Galene project.**
+> All credit for Galene goes to [jech/galene](https://github.com/jech/galene)
+> and its contributors. This repository is a personal fork maintained by
+> **activatethefud** that experiments with the web client UI (Jitsi-style
+> Mic/Camera toggles with a live login preview, per-user media indicators,
+> generated avatars, auto-login, and visual refreshes). The Go server is
+> unmodified upstream code. Please report upstream issues to the original
+> repository.
+
 Galene is a fully-featured videoconferencing system that is easy to deploy
 and requires very moderate server resources.  It is described at
 <https://galene.org>.
