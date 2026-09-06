@@ -1995,12 +1995,20 @@ legend {
 
 .peer .avatar .avatar-initials {
     color: #fff;
-    font-size: clamp(1.4rem, 7vh, 3.5rem);
-    font-weight: 700;
-    line-height: 1;
+    font-size: clamp(1.2rem, 6vh, 3rem);
+    font-weight: 600;
+    line-height: 1.15;
     letter-spacing: .02em;
     text-shadow: 0 2px 8px rgba(0, 0, 0, .45);
-    white-space: nowrap;
+    text-align: center;
+    padding: 0 12%;
+    overflow-wrap: break-word;
+    max-height: 70%;
+    overflow: hidden;
+}
+
+.peer .avatar .avatar-initials.avatar-long {
+    font-size: clamp(0.8rem, 3.4vh, 1.6rem);
 }
 
 /* --- participant-list rows with initials avatar --------------------- */

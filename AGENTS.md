@@ -81,8 +81,32 @@ on the login/Connect screen (live preview) and in the room top bar
 - Login username is remembered in `localStorage` (`galene.username`) and
   pre-filled (`getStoredUsername`/`setStoredUsername`); the trimmed value is
   stored on login submit.
+- Password automatic login stores `{username, password, time}` under
+  `galene.login` (`LOGIN_TTL` = 24h of inactivity).  Credentials are only
+  persisted after a *confirmed* join (`pendingLogin`), cleared on explicit
+  logout and on a rejected login (`'fail'` join message), and survive
+  ordinary disconnects.
+- Invite-link (token) automatic login stores `{group, token, username,
+  time}` under `galene.invite` (same 24h `LOGIN_TTL`).  It exists so users
+  who arrive through an invite URL and log in by typing **only a
+  username** (no password) are recognised again on later visits:
+  - `getStoredInvite(group)` returns the record only for the *current*
+    group (a foreign-group entry is kept, not cleared) and only if not
+    expired (expired entries are cleared); `setStoredInvite` /
+    `clearStoredInvite` do what their names say.
+  - `pendingInvite` mirrors `pendingLogin`: capture in `join()` for a real
+    token join (not the probe) that has a username; persist in `gotJoined`
+    only on a confirmed `'join'`; wipe on rejection and on explicit logout.
+  - In `start()`'s no-token branch a fresh stored invite for the current
+    group is preferred over the password auto-login: it prefills the
+    username, hides the password form, sets `token` +
+    `probingState='need-username'` (so `join()` skips the probe and does
+    the real join at once), then `serverConnect()`; if the socket never
+    opens it falls back to `showLogin()`.
+  - `gotClose()` restores the stored token after a disconnect so clicking
+    Connect again rejoins with just the username.
 - `#logoutbutton` in the top bar (shown when connected) closes the
-  connection and returns to the login screen.
+  connection, clears stored login/invite, and returns to the login screen.
 - Operator can mute a participant from the user menu.
 
 ## Running the client tests

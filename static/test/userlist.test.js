@@ -83,3 +83,37 @@ test('raisehand adds the badge class to the row', async (t) => {
     let normal = rowWithStatus(win, makeUserinfo({username: 'Carol'}));
     assert.ok(!normal.classList.contains('user-status-raisehand'));
 });
+
+test('the tile avatar shows the full username, the lobby keeps initials', async (t) => {
+    let app = await loadApp({});
+    t.after(() => app.close());
+    let win = app.window;
+
+    // Big canvas tile: full display name.
+    let tile = win.document.createElement('div');
+    tile.innerHTML = '<span class="avatar-initials"></span>';
+    win.setAvatarText(tile, {username: 'Ada Lovelace', up: true});
+    assert.equal(tile.querySelector('.avatar-initials').textContent,
+                 'Ada Lovelace');
+    assert.ok(!tile.querySelector('.avatar-initials').classList
+                  .contains('avatar-long'));
+
+    // Long names get the smaller-font class.
+    let long = win.document.createElement('div');
+    long.innerHTML = '<span class="avatar-initials"></span>';
+    win.setAvatarText(long,
+                      {username: 'A Very Long Username Indeed', up: true});
+    assert.ok(long.querySelector('.avatar-initials').classList
+                  .contains('avatar-long'));
+
+    // Local self-tile falls back to the remembered server username.
+    let self = win.document.createElement('div');
+    self.innerHTML = '<span class="avatar-initials"></span>';
+    win.setAvatarText(self, {username: null, up: true});
+    assert.equal(self.querySelector('.avatar-initials').textContent, '?');
+
+    // Lobby row keeps the short initials avatar.
+    let row = rowWithStatus(win, makeUserinfo({username: 'Ada Lovelace'}));
+    assert.equal(row.querySelector('.user-avatar').textContent, 'AL');
+});
+

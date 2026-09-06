@@ -338,7 +338,15 @@ async function join() {
             probingState = null;
             break;
         }
+        if(probingState !== 'probing' && username) {
+            // This is a real join through an invite link (not the probe).
+            // Remember the token and username in flight so that a
+            // confirmed join can persist the invite for automatic login.
+            pendingInvite = {group: group, token: token, username: username};
+        }
     } else {
+        // A password-based login replaces any in-flight invite attempt.
+        pendingInvite = null;
         if(probingState !== null) {
             console.warn(`Unexpected probing state ${probingState}`);
             probingState = null;
@@ -407,6 +415,17 @@ function gotClose(code, reason) {
     setButtonsVisibility();
     stopLoginPreview();
     updateLoginPreview();
+    // If the user originally joined through an invite link, keep the
+    // token around after a disconnect so that clicking Connect again on
+    // the login screen rejoins with just their username.
+    if(!token) {
+        let invite = getStoredInvite(group);
+        if(invite) {
+            token = invite.token;
+            probingState = 'need-username';
+            getInputElement('username').value = invite.username;
+        }
+    }
     if(code !== 1000) {
         console.warn('Socket close', code, reason);
     }
@@ -766,9 +785,93 @@ function clearStoredLogin() {
     }
 }
 
+// Invite-link (token) automatic login.  When the user arrives through an
+// invite link (a group URL with a ?token= query parameter) and the token
+// does not embed a username, the server asks for a username only -- no
+// password.  We remember {group, token, username} for a limited time so
+// that returning to the group page logs the user straight in with just
+// their username.
+const INVITE_STORAGE_KEY = 'galene.invite';
+
+/**
+ * @returns {{group: string, token: string, username: string}|null} the
+ * remembered invite login if present, fresh and for the given group,
+ * otherwise null.
+ *
+ * @param {string} group the group the user is currently visiting.
+ */
+function getStoredInvite(group) {
+    try {
+        let raw = window.localStorage.getItem(INVITE_STORAGE_KEY);
+        if(!raw)
+            return null;
+        let data = JSON.parse(raw);
+        if(typeof data !== 'object' || data === null)
+            return null;
+        if(typeof data.group !== 'string' ||
+           typeof data.token !== 'string' ||
+           typeof data.username !== 'string' ||
+           typeof data.time !== 'number')
+            return null;
+        if(data.group !== group)
+            // The invite belongs to another group; keep it for when the
+            // user visits that group again, but do not use it here.
+            return null;
+        if(Date.now() - data.time > LOGIN_TTL) {
+            // Expired: forget it.
+            clearStoredInvite();
+            return null;
+        }
+        return {
+            group: data.group,
+            token: data.token,
+            username: data.username,
+        };
+    } catch(e) {
+        return null;
+    }
+}
+
+/**
+ * Stores the credentials of a successful invite-link login for the given
+ * group and marks them as fresh.
+ *
+ * @param {string} group
+ * @param {string} token
+ * @param {string} username
+ */
+function setStoredInvite(group, token, username) {
+    try {
+        window.localStorage.setItem(
+            INVITE_STORAGE_KEY,
+            JSON.stringify({
+                group: group,
+                token: token,
+                username: username,
+                time: Date.now(),
+            }),
+        );
+    } catch(e) {
+        // Ignore; storage may be unavailable.
+    }
+}
+
+function clearStoredInvite() {
+    try {
+        window.localStorage.removeItem(INVITE_STORAGE_KEY);
+    } catch(e) {
+        // Ignore; storage may be unavailable.
+    }
+}
+
 // Credentials of the login attempt currently in flight; they are written
 // to localStorage only once the server has confirmed the join.
 let pendingLogin = null;
+
+// Token of the invite-link login attempt currently in flight (mirrors
+// pendingLogin); persisted only after a confirmed join, so that a rejected
+// token is never remembered.
+let pendingInvite = null;
 
 /**
  * Updates the floating "you are on air" indicator that reminds the user
@@ -848,6 +951,8 @@ document.getElementById('logoutbutton').onclick = function(e) {
     // An explicit logout drops the automatic-login credentials.
     pendingLogin = null;
     clearStoredLogin();
+    pendingInvite = null;
+    clearStoredInvite();
     if(serverConnection)
         serverConnection.close();
     closeNav();
@@ -2313,7 +2418,9 @@ function getInitials(name) {
 }
 
 /**
- * Sets the initials of the participant shown in a tile avatar.
+ * Fills a tile avatar with the participant's full display name.  The big
+ * canvas view has room for the whole username; the lobby keeps the short
+ * initials avatar instead (see setUserStatus).
  *
  * @param {HTMLElement} avatar
  * @param {Stream} c
@@ -2322,10 +2429,16 @@ function setAvatarText(avatar, c) {
     let name = c.username;
     if(!name && c.up && serverConnection && serverConnection.username)
         name = serverConnection.username;
+    let display = name ? name : getInitials(null);
     let pic = avatar.querySelector('.avatar-initials');
     if(!pic)
         return;
-    pic.textContent = getInitials(name);
+    pic.textContent = display;
+    // Long names get a smaller font so they still fit inside the tile.
+    if(display.length > 14)
+        pic.classList.add('avatar-long');
+    else
+        pic.classList.remove('avatar-long');
     avatar.title = name ? name : '(anon)';
 }
 
@@ -3036,6 +3149,8 @@ async function gotJoined(kind, group, perms, status, data, error, message) {
             // we don't keep attempting an automatic login.
             pendingLogin = null;
             clearStoredLogin();
+            pendingInvite = null;
+            clearStoredInvite();
         }
         closeSafariStream();
         this.close();
@@ -3093,6 +3208,12 @@ async function gotJoined(kind, group, perms, status, data, error, message) {
     if(pendingLogin) {
         setStoredLogin(pendingLogin.username, pendingLogin.password);
         pendingLogin = null;
+    }
+    if(pendingInvite) {
+        setStoredInvite(
+            pendingInvite.group, pendingInvite.token, pendingInvite.username,
+        );
+        pendingInvite = null;
     }
 
     let input = /** @type{HTMLTextAreaElement} */
@@ -4669,6 +4790,8 @@ document.getElementById('disconnectbutton').onclick = function(e) {
     // An explicit logout drops the automatic-login credentials.
     pendingLogin = null;
     clearStoredLogin();
+    pendingInvite = null;
+    clearStoredInvite();
     serverConnection.close();
     closeNav();
 };
@@ -4823,22 +4946,47 @@ async function start() {
     } else if(groupStatus.authPortal) {
         window.location.href = groupStatus.authPortal;
     } else {
-        let auto = getStoredLogin();
-        if(auto) {
-            // Returning visitor within the login window: log straight in
-            // with the remembered credentials.
-            setStoredUsername(auto.username);
-            getInputElement('username').value = auto.username;
-            getInputElement('password').value = auto.password;
-            setVisibility('passwordform', true);
+        let invite = getStoredInvite(group);
+        if(invite) {
+            // Returning visitor who originally came in through an invite
+            // link: log straight in with the remembered token and their
+            // username.  No password is needed (and the login screen
+            // normally only asks such users for a username).
+            setStoredUsername(invite.username);
+            getInputElement('username').value = invite.username;
+            setVisibility('passwordform', false);
+            token = invite.token;
+            // Skip the probe: we already know the token works and which
+            // username to use, so join() performs the real join at once.
+            probingState = 'need-username';
             await serverConnect();
             // If the connection failed before it was established (e.g.
             // the server is unreachable), fall back to the regular login
             // form instead of leaving the user staring at a blank page.
-            if(!(serverConnection && serverConnection.socket))
+            if(!(serverConnection && serverConnection.socket)) {
+                token = null;
+                probingState = null;
                 showLogin();
+            }
         } else {
-            showLogin();
+            let auto = getStoredLogin();
+            if(auto) {
+                // Returning visitor within the login window: log straight
+                // in with the remembered credentials.
+                setStoredUsername(auto.username);
+                getInputElement('username').value = auto.username;
+                getInputElement('password').value = auto.password;
+                setVisibility('passwordform', true);
+                await serverConnect();
+                // If the connection failed before it was established (e.g.
+                // the server is unreachable), fall back to the regular
+                // login form instead of leaving the user staring at a
+                // blank page.
+                if(!(serverConnection && serverConnection.socket))
+                    showLogin();
+            } else {
+                showLogin();
+            }
         }
     }
     setViewportHeight();
