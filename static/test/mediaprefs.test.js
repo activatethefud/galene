@@ -1,6 +1,6 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {loadApp, waitFor, isVisible} from './harness.js';
+import {loadApp, waitFor, isVisible, joinRoom} from './harness.js';
 
 // The Mic/Camera toggle state is remembered under this localStorage key and
 // restored on the next page load or after a disconnect, so that automatic
@@ -131,6 +131,51 @@ test('after a disconnect the stored media preference is restored', async () => {
         assert.equal(calls[calls.length - 1].video, false);
         assert.ok(calls[calls.length - 1].audio &&
                   typeof calls[calls.length - 1].audio === 'object');
+        assert.deepEqual(app.errors, []);
+    } finally {
+        app.close();
+    }
+});
+
+test('logging out keeps the Mic and Camera toggles on for the re-login form', async () => {
+    // Reproduces the report: after logging out of a meeting the re-login
+    // form must show the Mic/Camera toggles ON (as they were).  The
+    // camera stream's close handler is asynchronous, so it must not run
+    // after gotClose() has already restored the login-screen state.
+    const app = await loadApp({webSocket: true});
+    try {
+        // Join a meeting, then log out via the top-bar button.
+        await joinRoom(app, {username: 'viewer', password: 'x'});
+        app.document.getElementById('logoutbutton').click();
+        await waitFor(() => isVisible(app.document, 'login-container'),
+                      'the login screen was not shown after logout: ' +
+                          JSON.stringify(app.errors));
+        // The re-login form must have both toggles on (the default when
+        // nothing is stored).
+        let cam = await joinButtonState(app, 'join-cambutton');
+        assert.equal(cam.on, true);
+        assert.equal(cam.off, false);
+        assert.equal(cam.pressed, 'true');
+        assert.match(cam.icon, /fa-video$/);
+        let mic = await joinButtonState(app, 'join-micbutton');
+        assert.equal(mic.on, true);
+        assert.equal(mic.pressed, 'true');
+        assert.match(mic.icon, /fa-microphone$/);
+
+        // The camera up-stream's close handler is asynchronous: it may run
+        // *after* gotClose() has restored the login-screen state.  Simulate
+        // that late callback firing and assert it does not clobber the
+        // restored toggles (the pre-fix bug left both buttons off here).
+        app.window.localMediaStopped();
+        cam = await joinButtonState(app, 'join-cambutton');
+        assert.equal(cam.on, true);
+        assert.equal(cam.off, false);
+        assert.equal(cam.pressed, 'true');
+        assert.match(cam.icon, /fa-video$/);
+        mic = await joinButtonState(app, 'join-micbutton');
+        assert.equal(mic.on, true);
+        assert.equal(mic.pressed, 'true');
+        assert.match(mic.icon, /fa-microphone$/);
         assert.deepEqual(app.errors, []);
     } finally {
         app.close();

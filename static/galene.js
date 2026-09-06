@@ -709,6 +709,26 @@ function syncMediaButtons() {
     updateAirIndicator();
 }
 
+/**
+ * Called when the up-stream carrying our camera and microphone goes away
+ * (stopped by the user, a device failure, or the connection being closed).
+ *
+ * The stream close handler in setUpStream is asynchronous (it awaits the
+ * filter teardown), so this may run *after* gotClose() has already
+ * restored the Mic/Camera toggles for the login screen.  Only switch both
+ * buttons off while we are still in a meeting; once we are back on the
+ * login screen the buttons must keep the state gotClose() chose (default
+ * on, or the user's stored preference).
+ */
+function localMediaStopped() {
+    if(getVisibility('login-container'))
+        return;
+    localCameraOn = false;
+    localMicOn = false;
+    syncMediaButtons();
+    setButtonsVisibility();
+}
+
 const USERNAME_STORAGE_KEY = 'galene.username';
 
 function getStoredUsername() {
@@ -1839,14 +1859,9 @@ async function openLocalMedia(localId, videoOn) {
             displayWarning(`Unknown filter ${settings.filter}`);
     }
 
-    c.userdata.onclose = function() {
-        // The stream went away (stopped by the user, device failure or
-        // disconnect): switch both buttons off.
-        localCameraOn = false;
-        localMicOn = false;
-        syncMediaButtons();
-        setButtonsVisibility();
-    };
+    // The stream went away (stopped by the user, a device failure, or the
+    // connection was closed).
+    c.userdata.onclose = localMediaStopped;
 
     try {
         await setUpStream(c, stream);
